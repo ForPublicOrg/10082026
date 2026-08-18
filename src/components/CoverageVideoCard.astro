@@ -1,0 +1,240 @@
+---
+// One card in a /coverage rail: YouTube thumbnail, duration chip, title, date.
+// The whole card is a single anchor straight to the video on YouTube — this
+// page archives nothing, it points at the creators' own uploads, so unlike
+// VideoCard there is no player, no local media, and no like button here.
+import type { Creator, CreatorVideo } from "../lib/schema";
+import { MARCH_DAY, formatCardDate, formatDuration, thumbUrl, watchUrl } from "../lib/coverage";
+
+export interface Props {
+  video: CreatorVideo;
+  creator: Creator;
+  /** Mixed-channel rail ("More from the ground"): show whose video this is. */
+  showChannel?: boolean;
+}
+
+const { video, creator, showChannel = false } = Astro.props;
+
+const isMarchDay = video.publishedAt === MARCH_DAY;
+const monogram = creator.name.trim().charAt(0).toUpperCase() || "?";
+---
+
+<a
+  class="cov-card"
+  href={watchUrl(video)}
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label={`${video.title} — ${creator.name} on YouTube (opens in a new tab)`}
+>
+  <div class="cov-thumb-wrap">
+    <img
+      class:list={["cov-thumb", { "is-vertical": video.orientation === "vertical" }]}
+      src={thumbUrl(video)}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      width={video.orientation === "vertical" ? 405 : 1280}
+      height={video.orientation === "vertical" ? 720 : 720}
+    />
+    {isMarchDay && <span class="cov-day-chip" aria-hidden="true">10 AUG</span>}
+    <span class="cov-duration">{formatDuration(video.duration)}</span>
+  </div>
+  <div class="cov-card-body">
+    {
+      showChannel && (
+        <span class="cov-card-channel">
+          {creator.avatar ? (
+            <img class="cov-card-channel-avatar" src={creator.avatar} alt="" loading="lazy" decoding="async" width="88" height="88" />
+          ) : (
+            <span class="cov-card-channel-avatar" aria-hidden="true">
+              {monogram}
+            </span>
+          )}
+          {creator.name}
+        </span>
+      )
+    }
+    <p class="cov-card-title">{video.title}</p>
+    <span class="cov-card-meta">
+      <time datetime={video.publishedAt} class:list={{ "is-march-day": isMarchDay }}>
+        {formatCardDate(video.publishedAt)}
+      </time>
+      <span aria-hidden="true">&middot;</span>
+      <span class="cov-card-yt">YouTube <span aria-hidden="true">&#8599;</span></span>
+    </span>
+  </div>
+</a>
+
+<style>
+  .cov-card {
+    /* Rail child: fixed width, never shrinks, snaps to the rail's inline
+       padding edge. */
+    flex: 0 0 auto;
+    width: 272px;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    text-decoration: none;
+    color: var(--color-text);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @media (min-width: 768px) {
+    .cov-card {
+      width: 300px;
+    }
+  }
+
+  .cov-thumb-wrap {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 10px;
+    /* Same continuous-black-field rule as the feed's letterbox: vertical
+       frames sit contained in pure black, so their pillar bars vanish into
+       the card instead of reading as grey mattes. */
+    background: var(--color-letterbox);
+    border: 1px solid var(--color-border);
+  }
+
+  .cov-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Portrait (Shorts-style) frames are never crop-mangled into 16:9 — they
+     render contained, centered in the black field, like a reel frame. */
+  .cov-thumb.is-vertical {
+    object-fit: contain;
+  }
+
+  .cov-duration {
+    position: absolute;
+    right: 0.4rem;
+    bottom: 0.4rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  /* Small archival marker on footage published the day of the march itself —
+     white chip so it reads before color does, mirroring the site's
+     white-on-black accent language. */
+  .cov-day-chip {
+    position: absolute;
+    left: 0.4rem;
+    top: 0.4rem;
+    padding: 0.12rem 0.4rem;
+    border-radius: 4px;
+    background: #fff;
+    color: #000;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .cov-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0 0.1rem;
+  }
+
+  .cov-card-channel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-muted);
+  }
+
+  .cov-card-channel-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 0.6rem;
+    font-weight: 600;
+  }
+
+  img.cov-card-channel-avatar {
+    object-fit: cover;
+  }
+
+  .cov-card-title {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--color-text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .cov-card-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--color-muted);
+  }
+
+  .cov-card-meta time.is-march-day {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  /* The off-site affordance keeps the same muted-blue "this actually
+     navigates" language the feed's source links use. */
+  .cov-card-yt {
+    color: var(--color-link);
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .cov-thumb {
+      transition: transform 250ms ease;
+    }
+
+    .cov-thumb-wrap {
+      transition: border-color 250ms ease;
+    }
+  }
+
+  @media (hover: hover) {
+    .cov-card:hover .cov-thumb {
+      transform: scale(1.04);
+    }
+
+    .cov-card:hover .cov-thumb.is-vertical {
+      /* Zooming a contained portrait frame would push it past its pillar
+         bars into a fake crop — hold it still instead. */
+      transform: none;
+    }
+
+    .cov-card:hover .cov-thumb-wrap {
+      border-color: var(--color-tertiary);
+    }
+
+    .cov-card:hover .cov-card-title {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  }
+</style>

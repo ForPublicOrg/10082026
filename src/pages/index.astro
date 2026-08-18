@@ -1,0 +1,783 @@
+---
+// Landing page. Apple-product-page style: the entire first viewport is the
+// poster illustration (no visible site title/header — the poster carries
+// its own titling), a CTA + scroll cue sit on it, and a short scroll
+// storyline reveals underneath. See docs/design-spec.md §7 for the history
+// of this route (it has flipped between "feed-as-landing" and "banner +
+// context page" more than once on 2026-07-21; this is the latest state).
+import Base from "../layouts/Base.astro";
+import { loadVideos, loadTimeline, publicVideos } from "../lib/schema";
+import { MAX_UPLOAD_LABEL } from "../lib/upload-limits";
+import { SITE_URL } from "../config";
+
+const videos = publicVideos(loadVideos());
+const timeline = loadTimeline();
+
+const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
+---
+
+<Base
+  title="Home"
+  description="On 10 August 2026, thousands of students marched on the Jharkhand Legislative Assembly in Ranchi and were met with water cannon, tear gas and a lathi charge. This is an archive of video posted publicly by the people who were there, each entry linking back to the original post."
+  ogImage={ogImage}
+  hideHeader
+  overlayNav
+  hideFooter
+>
+  <!-- The poster already carries the date/title text; this heading exists
+       for SEO and screen readers only, never rendered visibly. -->
+  <h1 class="sr-only">10 08 2026 — The Day Jharkhand Marched</h1>
+
+  <section class="hero">
+    <picture>
+      <!-- Desktop / wide viewports: 2:1 poster artwork, generated for this
+           fork (typographic memorial poster — see scripts note in
+           docs/execution-plan.md "Open" for the commissioned-artwork slot).
+           2:1 closely matches common desktop viewport ratios, so `cover`
+           below only trims a sliver rather than pillarboxing. -->
+      <source
+        media="(min-width: 768px)"
+        type="image/webp"
+        srcset="/banner/poster-wide-1280.webp 1280w, /banner/poster-wide-1920.webp 1920w, /banner/poster-wide-2560.webp 2560w"
+        sizes="100vw"
+      />
+      <source
+        media="(min-width: 768px)"
+        type="image/jpeg"
+        srcset="/banner/poster-wide.jpg"
+      />
+      <!-- Mobile / narrow viewports: native 864x1822 portrait (~1:2.11),
+           close match to a ~1:2.16 phone. The poster is generated from a
+           vector source, so regenerate at higher resolution if ever needed
+           rather than upscaling these files. The bottom ~10% of the artwork
+           is the values strip the --hero-strip-h overlay tuning below is
+           anchored to. -->
+      <source
+        type="image/webp"
+        srcset="/banner/poster-portrait-640.webp 640w, /banner/poster-portrait-864.webp 864w"
+        sizes="100vw"
+      />
+      <img
+        src="/banner/poster-portrait.jpg"
+        alt="Typographic memorial poster on a black field: a torch mark with a deep-red flame above the date 10·08·2026, the words The Day Jharkhand Marched, Ranchi · Vidhan Sabha, and the archive's values strip along the bottom edge."
+        width="864"
+        height="1822"
+        fetchpriority="high"
+        loading="eager"
+        decoding="async"
+        class="hero-img"
+      />
+    </picture>
+
+    <div class="hero-scrim" aria-hidden="true"></div>
+
+    <div class="hero-overlay">
+      <!-- Scroll cue sits ABOVE the CTA in this stack (unusual order) on
+           purpose: the whole overlay is bottom-anchored to --hero-strip-h
+           (see .hero-overlay below), so whichever element is LAST in the
+           stack ends up glued to that anchor line, right above the values
+           strip. Putting the CTA last, not the scroll cue, is what pulls the
+           button down off the seated figure's face/torso and onto the
+           quieter scattered-papers/book ground area at the bottom of the
+           artwork — see the CSS comment on .hero-overlay for the measurement
+           this is based on. -->
+      <div class="scroll-cue">
+        <span class="scroll-cue-chevron" aria-hidden="true"></span>
+        <span class="scroll-cue-label">Scroll</span>
+      </div>
+
+      <a href="/feed" class="cta-primary">Show me proof</a>
+    </div>
+  </section>
+
+  <div class="content-col storyline">
+    <!-- Memorial lede: the thesis line that opens the storyline, the first
+         text read after scrolling past the poster. Date-led and restrained
+         to match the archive's documentation-first voice — the epithet is the
+         site's own memorial framing, not a claim about any media item. -->
+    <section class="reveal lede" data-reveal>
+      <p class="lede-kicker">10 August 2026</p>
+      <h2 class="lede-title">The Day Jharkhand Marched</h2>
+      <p class="lede-sub">
+        The day a movement against leaked papers reached the gates of the
+        Vidhan Sabha.
+      </p>
+    </section>
+
+    <section class="reveal story-block" data-reveal>
+      <h2 class="text-lg font-semibold">What happened</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        On 10 August 2026, the seventeenth day of a movement against leaked
+        recruitment-exam papers, thousands of students marched from Jaipal
+        Singh Munda Stadium towards the Jharkhand Legislative Assembly in
+        Ranchi. They broke through police barricades and were met with water
+        cannon, tear gas and a lathi charge.
+      </p>
+    </section>
+
+    <section class="reveal story-block" data-reveal>
+      <h2 class="text-lg font-semibold">What this is</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        An archive of publicly available video from that day and the movement
+        around it, kept with its original sources and labelled by how much of
+        it has actually been verified.
+      </p>
+      <p class="counts">
+        {videos.length} video{videos.length === 1 ? "" : "s"} archived
+        &middot; {timeline.length} timeline event{
+          timeline.length === 1 ? "" : "s"
+        }
+      </p>
+    </section>
+
+    <!-- Progressive enhancement: a real <form> that posts JSON via the
+         inline script below. Unlike takedown.astro this has no no-JS
+         fallback — a two-step upload with a progress bar has no sane plain
+         POST equivalent, so /api/submit-video and /api/upload/:id (see
+         src/worker.ts) both just 400 a non-JSON caller. -->
+    <section class="reveal story-block" data-reveal>
+      <h2 class="text-lg font-semibold">Submit a video</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        Have footage from the movement? Share a link to where you posted it,
+        or upload the raw file directly if you never posted it anywhere.
+      </p>
+
+      <form
+        id="submit-video-form"
+        class="mt-6 flex flex-col gap-5 border-t border-border pt-6"
+      >
+        <div class="flex gap-5 text-sm" role="radiogroup" aria-label="How are you sharing this?">
+          <label class="flex items-center gap-2">
+            <input type="radio" name="submit-mode" value="url" checked />
+            I have a link
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="radio" name="submit-mode" value="upload" />
+            I have raw footage
+          </label>
+        </div>
+
+        <div id="submit-video-url-field" class="flex flex-col gap-1.5">
+          <label for="video-url" class="text-sm font-semibold">Link to the post</label>
+          <input
+            id="video-url"
+            name="url"
+            type="url"
+            placeholder="https://..."
+            class="min-h-11 rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-tertiary"
+          />
+        </div>
+
+        <div id="submit-video-file-field" class="flex flex-col gap-1.5" style="display:none">
+          <label for="video-file" class="text-sm font-semibold">Video file</label>
+          <input
+            id="video-file"
+            name="file"
+            type="file"
+            accept="video/*"
+            class="text-sm text-text file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:text-sm file:font-semibold file:text-bg"
+          />
+          <p class="text-xs leading-relaxed text-muted">
+            Up to {MAX_UPLOAD_LABEL}. For anything larger, upload it elsewhere and share the link instead.
+          </p>
+          <div id="submit-video-progress-wrap" style="display:none">
+            <div class="h-1.5 w-full overflow-hidden rounded-full bg-surface">
+              <div id="submit-video-progress-bar" class="h-full w-0 bg-accent"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for="video-event-date" class="text-sm font-semibold">
+            When did this happen? <span class="font-normal text-muted">(optional)</span>
+          </label>
+          <input
+            id="video-event-date"
+            name="eventDate"
+            type="datetime-local"
+            class="min-h-11 rounded-lg border border-border bg-surface px-3 text-sm text-text"
+          />
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for="video-description" class="text-sm font-semibold">
+            Description <span class="font-normal text-muted">(optional)</span>
+          </label>
+          <textarea
+            id="video-description"
+            name="description"
+            maxlength="2000"
+            rows="4"
+            placeholder="What does this show? Where was it filmed?"
+            class="rounded-lg border border-border bg-surface px-3 py-2 text-sm leading-relaxed text-text placeholder:text-tertiary"
+          ></textarea>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for="video-contact" class="text-sm font-semibold">
+            How to reach you <span class="font-normal text-muted">(optional)</span>
+          </label>
+          <input
+            id="video-contact"
+            name="contact"
+            type="text"
+            maxlength="300"
+            placeholder="Email or social handle"
+            class="min-h-11 rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-tertiary"
+          />
+        </div>
+
+        {/* Honeypot. Hidden from people, filled in by bots — see src/worker.ts. */}
+        <div class="hp" aria-hidden="true">
+          <label for="video-website">Leave this field empty</label>
+          <input id="video-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <div class="flex flex-col gap-3">
+          <button
+            type="submit"
+            class="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-bg"
+          >
+            Submit video
+          </button>
+          <p id="submit-video-status" role="status" aria-live="polite" class="text-sm"></p>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- Vercel Web Analytics (landing page only). Plain-HTML integration:
+       when the site is deployed on Vercel with Web Analytics enabled, the
+       platform serves /_vercel/insights/script.js and collects page views;
+       everywhere else (wrangler dev, the Cloudflare deploy) the request
+       404s and the deferred script is a silent no-op. Same-origin, so it
+       needs no CSP changes. is:inline keeps Astro from bundling it. -->
+  <script is:inline>
+    window.va =
+      window.va ||
+      function () {
+        (window.vaq = window.vaq || []).push(arguments);
+      };
+  </script>
+  <script is:inline defer src="/_vercel/insights/script.js"></script>
+</Base>
+
+<style>
+  .hero {
+    position: relative;
+    /* Never 100vh on mobile: that includes area the browser chrome can
+       cover/uncover, which would clip the CTA. 100svh is the guaranteed
+       visible minimum. */
+    /* End the poster ABOVE the floating nav rather than behind it. The
+       artwork's own values strip runs along its bottom edge, so a full-100svh
+       hero puts the strip's second line ("THE TRUTH", "THEM", "THE EVIDENCE"…)
+       underneath the opaque nav bar and slices it in half. Reserving the nav's
+       height means the whole poster — strip included — is actually visible,
+       which is the point of showing it at all. */
+    height: calc(100svh - var(--app-nav-h) - env(safe-area-inset-bottom));
+    width: 100%;
+    overflow: hidden;
+    background: var(--color-bg);
+    /* The poster's own designed values strip (DOCUMENT THE TRUTH / REMEMBER
+       THEM / PRESERVE THE EVIDENCE / HONOR THE COURAGE / THIS ARCHIVE) lives
+       along the bottom edge of the artwork, occupying the bottom ~19% of the
+       full image height. Now that .hero-img uses a top-anchored `cover` on
+       mobile (see below — needed to kill the pillarboxing `contain` caused
+       on real phone viewports), that strip is exactly what gets cropped
+       first, and by a variable amount depending on how much taller the hero
+       box is than the poster's own aspect. 10% is a conservative estimate
+       of how much of the strip typically survives, not an exact fraction —
+       on short viewports the strip may crop away entirely, which is an
+       acceptable trade for losing the pillarboxing. The overlay's own
+       max(--hero-strip-h, nav-clearance) floor (below) still guarantees the
+       CTA never sits behind the bottom nav even where this estimate is off. */
+    --hero-strip-h: 10%;
+  }
+
+  @media (min-width: 768px) {
+    .hero {
+      --hero-strip-h: 13%;
+      /* Desktop nav is a fixed left sidebar (no header on the landing
+         page either), so it claims no vertical space here — the hero can
+         take the full viewport height. */
+      height: 100svh;
+    }
+  }
+
+  .hero-img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* `cover`, not `contain`, on phones. `contain` was tried first to avoid
+       cropping the poster at all, on the assumption (never checked against
+       a real phone, only a bare 390x844 box) that it would only cost ~10px
+       of letterbox per side. On an actual small viewport — address bar
+       visible, bottom nav reserved via --app-nav-h — the hero box ends up
+       noticeably wider-than-tall relative to the poster's own 0.4742 aspect,
+       and `contain` pillarboxed with real, visible black bars down both
+       sides (reported by the owner from a live phone screenshot, ~8% of
+       width per side). That's the same "black bars on both sides" bug
+       desktop had before it switched to `cover` (see the media query
+       below) — same fix applies here. Anchored top so the crop comes out of
+       the bottom values strip rather than the date/title block at the top,
+       which matters far more on the first screenful. --hero-strip-h below
+       is now a conservative estimate, not an exact fraction, since how much
+       of the strip survives depends on how much the crop takes. */
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  @media (min-width: 768px) {
+    .hero-img {
+      /* Desktop switches to `cover`: the mobile portrait crop still needs
+         `contain` (see above — no wider anchor rescues both ends there),
+         but the new 2:1 desktop artwork is close enough to real viewport
+         ratios that `cover` only trims a small sliver rather than
+         pillarboxing, and it's what actually fills the viewport edge to
+         edge (the previous unconditional `contain` was letterboxing every
+         desktop width, which is the "black bars on both sides" the owner
+         flagged). Anchor bottom, not center, for the same reason as before:
+         it puts the entire crop at the top (ample sky/margin above the
+         "REC" mark) so the bottom-edge values strip survives at full
+         height instead of being shaved down and half-hidden behind the nav. */
+      object-fit: cover;
+      object-position: center bottom;
+    }
+  }
+
+  /* Bottom scrim so the illustration label and scroll cue stay legible over
+     arbitrary artwork pixels, without darkening the whole poster. Runs all
+     the way to the hero's own bottom edge (bottom: 0) on both breakpoints:
+     both .hero-img crops now use `cover` (mobile top-anchored, desktop
+     bottom-anchored — see below), and how much of the values strip survives
+     a `cover` crop varies by the viewport's actual aspect ratio, not just
+     the one it was tuned against. Desktop used to stop the scrim short
+     (bottom: var(--hero-strip-h)) on the assumption its crop reliably kept
+     the strip intact, but real desktop viewports cropped it too, leaving
+     the same hard, ugly seam mobile had where the crisp uncropped art met
+     the flat page background. Running the scrim to the true edge on both
+     means whatever's left of the strip always fades into the page's own
+     --color-bg instead of ending in a visible line. */
+  .hero-scrim {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 36%;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.92) 0%,
+      rgba(0, 0, 0, 0.3) 45%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    pointer-events: none;
+  }
+
+  .hero-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* Anchored above the poster's own values strip (see --hero-strip-h on
+       .hero) so the CTA/scroll-cue never sit on top of it — and, as a
+       floor, always clears the floating bottom nav (mobile only — fixed at
+       the bottom of the viewport there, see Base.astro) even on a viewport
+       short enough that the strip's measured height would otherwise
+       undercut the nav bar. Desktop overrides this below since its nav is
+       a left sidebar with no bottom footprint to clear. */
+    bottom: max(
+      var(--hero-strip-h),
+      calc(var(--app-nav-h) + env(safe-area-inset-bottom) + 0.85rem)
+    );
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0 1.25rem 0.5rem;
+    text-align: center;
+  }
+
+  @media (min-width: 768px) {
+    .hero-overlay {
+      /* No bottom bar to clear on desktop (left sidebar instead) — just
+         the strip, plus a small fixed floor for very short viewports. */
+      bottom: max(var(--hero-strip-h), 1rem);
+    }
+  }
+
+  .cta-primary {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--color-accent);
+    color: var(--color-bg);
+    padding: 0.85rem 2.25rem;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .cta-primary:hover {
+    opacity: 0.9;
+  }
+
+  .scroll-cue {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--color-muted);
+  }
+
+  .scroll-cue-chevron {
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid var(--color-muted);
+    border-bottom: 1.5px solid var(--color-muted);
+    transform: rotate(45deg);
+  }
+
+  .scroll-cue-label {
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .scroll-cue {
+      animation: scroll-cue-bounce 1.6s ease-in-out infinite;
+    }
+  }
+
+  @keyframes scroll-cue-bounce {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(6px);
+    }
+  }
+
+  /* --- Scroll storyline ------------------------------------------------ */
+
+  .storyline {
+    padding-top: 4.5rem;
+    padding-bottom: 3rem;
+  }
+
+  .story-block {
+    padding-top: 4rem;
+    padding-bottom: 4rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .story-block:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  /* --- Memorial lede: opens the storyline (first text after the poster) -- */
+
+  .lede {
+    text-align: center;
+    padding-bottom: 1.5rem;
+  }
+
+  .lede-kicker {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lede-title {
+    margin: 0.7rem 0 0;
+    font-size: clamp(1.5rem, 6vw, 2.05rem);
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    color: var(--color-text);
+  }
+
+  .lede-sub {
+    margin: 0.85rem auto 0;
+    max-width: 26rem;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--color-muted);
+  }
+
+  .counts {
+    margin-top: 1rem;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+
+  /* --- "Submit a video" form ------------------------------------------- */
+
+  /* Off-screen rather than display:none — some bots skip inputs that are
+     display:none, but will happily fill one that is merely positioned away.
+     Same trick as takedown.astro's own .hp; duplicated here rather than
+     shared because Astro scopes <style> per component. */
+  .hp {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+
+  /* Progressive enhancement: sections are visible by default (this rule is
+     NOT inside a prefers-reduced-motion or JS-only gate). landing.ts only
+     ever ADDS a class that hides them again for the staged-reveal
+     animation, and only when JS runs AND the user has no reduced-motion
+     preference — see src/scripts/landing.ts. If JS never runs, or the
+     IntersectionObserver never fires, content simply stays visible. */
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal.js-enhanced {
+      opacity: 0;
+      transform: translateY(28px);
+      transition:
+        opacity 700ms ease,
+        transform 700ms ease;
+    }
+
+    .reveal.js-enhanced.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
+
+<script src="../scripts/landing.ts"></script>
+
+<script>
+  import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "../lib/upload-limits";
+
+  const COULD_NOT_REACH =
+    "Could not reach the server. Please check your connection and try again.";
+
+  /**
+   * Carries a message that is safe to show the submitter. Exists so the submit
+   * handler can tell "the server answered and refused, here's why" apart from
+   * "we never got a reply". Until 2026-07-28 both rejected with the same opaque
+   * Error and everything was reported as a connection problem — including a
+   * clear 413, which meant the real cause never reached either the submitter or
+   * us.
+   */
+  class UploadError extends Error {
+    userMessage: string;
+    constructor(userMessage: string) {
+      super(userMessage);
+      this.name = "UploadError";
+      this.userMessage = userMessage;
+    }
+  }
+
+  /**
+   * The Worker answers failures with `{ ok: false, error }`. Cloudflare's own
+   * edge errors do not — the plan-level request-body 413 in particular is
+   * generated before the Worker runs and returns an HTML page — so fall back to
+   * the status code when the body isn't our JSON.
+   */
+  function uploadErrorMessage(xhr: XMLHttpRequest): string {
+    try {
+      const parsed = JSON.parse(xhr.responseText) as { error?: string };
+      if (typeof parsed.error === "string" && parsed.error) return parsed.error;
+    } catch {
+      // Not JSON — fall through to the status-based messages below.
+    }
+    if (xhr.status === 413) return TOO_LARGE_MESSAGE;
+    if (xhr.status === 429) return "Uploads are at capacity right now. Please try again later.";
+    if (xhr.status === 0) return COULD_NOT_REACH;
+    return `The upload failed (error ${xhr.status}). Please try again, or share a link instead.`;
+  }
+
+  function initSubmitVideoForm() {
+    const form = document.getElementById("submit-video-form");
+    if (!(form instanceof HTMLFormElement)) return;
+    if (form.dataset.enhanced === "true") return;
+    form.dataset.enhanced = "true";
+
+    const urlField = document.getElementById("submit-video-url-field");
+    const fileField = document.getElementById("submit-video-file-field");
+    const progressWrap = document.getElementById("submit-video-progress-wrap");
+    const progressBar = document.getElementById("submit-video-progress-bar");
+    const status = document.getElementById("submit-video-status");
+    const button = form.querySelector('button[type="submit"]');
+    const fileInput = document.getElementById("video-file");
+    const urlInput = document.getElementById("video-url");
+
+    function currentMode(): string {
+      const checked = form!.querySelector('input[name="submit-mode"]:checked');
+      return checked instanceof HTMLInputElement ? checked.value : "url";
+    }
+
+    function syncMode() {
+      const mode = currentMode();
+      if (urlField instanceof HTMLElement) urlField.style.display = mode === "url" ? "flex" : "none";
+      if (fileField instanceof HTMLElement) fileField.style.display = mode === "upload" ? "flex" : "none";
+      // Only the field for the active mode should be required/validated.
+      if (urlInput instanceof HTMLInputElement) urlInput.required = mode === "url";
+      if (fileInput instanceof HTMLInputElement) fileInput.required = mode === "upload";
+    }
+
+    form.querySelectorAll('input[name="submit-mode"]').forEach((input) => {
+      input.addEventListener("change", syncMode);
+    });
+    syncMode();
+
+    function setStatus(text: string) {
+      if (status) status.textContent = text;
+    }
+
+    function setBusy(busy: boolean, label?: string) {
+      if (!(button instanceof HTMLButtonElement)) return;
+      button.disabled = busy;
+      if (label) button.textContent = label;
+    }
+
+    function fieldValue(id: string): string {
+      const el = document.getElementById(id);
+      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : "";
+    }
+
+    function uploadFile(id: number, file: File): Promise<void> {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", `/api/upload/${id}`);
+        xhr.setRequestHeader("content-type", file.type);
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable && progressBar instanceof HTMLElement) {
+            progressBar.style.width = `${Math.round((event.loaded / event.total) * 100)}%`;
+          }
+        });
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new UploadError(uploadErrorMessage(xhr)));
+        });
+        // Only fires when the request never completed at all (connection
+        // dropped, DNS, CORS). Anything the server or the edge actually
+        // answered — including a 4xx/5xx — arrives via `load` above.
+        xhr.addEventListener("error", () => reject(new UploadError(COULD_NOT_REACH)));
+        xhr.addEventListener("abort", () => reject(new UploadError("The upload was cancelled.")));
+        xhr.addEventListener("timeout", () =>
+          reject(new UploadError("The upload timed out. Please try again.")),
+        );
+        xhr.send(file);
+      });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+
+      const mode = currentMode();
+      const eventDate = fieldValue("video-event-date");
+      const description = fieldValue("video-description");
+      const contact = fieldValue("video-contact");
+      const website = fieldValue("video-website");
+
+      setStatus("");
+      setBusy(true, "Sending…");
+
+      try {
+        if (mode === "url") {
+          const response = await fetch("/api/submit-video", {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({
+              mode: "url",
+              url: fieldValue("video-url"),
+              eventDate,
+              description,
+              contact,
+              website,
+            }),
+          });
+          const result = (await response.json()) as { ok?: boolean; error?: string };
+
+          if (response.ok && result.ok) {
+            form.reset();
+            syncMode();
+            setStatus("Thank you — this will be reviewed.");
+            setBusy(false, "Sent");
+            return;
+          }
+          setStatus(result.error ?? "Something went wrong. Please try again.");
+          setBusy(false, "Submit video");
+          return;
+        }
+
+        // Upload mode: create the row first, then stream the file in.
+        const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : undefined;
+        if (!file) {
+          setStatus("Please choose a file to upload.");
+          setBusy(false, "Submit video");
+          return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+          setStatus(TOO_LARGE_MESSAGE);
+          setBusy(false, "Submit video");
+          return;
+        }
+
+        const createResponse = await fetch("/api/submit-video", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({
+            mode: "upload",
+            eventDate,
+            description,
+            contact,
+            website,
+            filename: file.name,
+            mimeType: file.type,
+            fileSize: file.size,
+          }),
+        });
+        const created = (await createResponse.json()) as { ok?: boolean; error?: string; id?: number };
+
+        if (!createResponse.ok || !created.ok || !created.id) {
+          setStatus(created.error ?? "Something went wrong. Please try again.");
+          setBusy(false, "Submit video");
+          return;
+        }
+
+        if (progressWrap instanceof HTMLElement) progressWrap.style.display = "block";
+        await uploadFile(created.id, file);
+
+        form.reset();
+        syncMode();
+        if (progressWrap instanceof HTMLElement) progressWrap.style.display = "none";
+        if (progressBar instanceof HTMLElement) progressBar.style.width = "0%";
+        setStatus("Thank you — this will be reviewed.");
+        setBusy(false, "Sent");
+      } catch (error) {
+        if (progressWrap instanceof HTMLElement) progressWrap.style.display = "none";
+        // An UploadError already carries a message written for the submitter.
+        // Anything else here is a genuinely failed fetch() for the two
+        // /api/submit-video calls above, where "couldn't reach us" is accurate.
+        setStatus(error instanceof UploadError ? error.userMessage : COULD_NOT_REACH);
+        setBusy(false, "Submit video");
+      }
+    });
+  }
+
+  initSubmitVideoForm();
+  // Astro's ClientRouter swaps documents without a full reload.
+  document.addEventListener("astro:page-load", initSubmitVideoForm);
+</script>

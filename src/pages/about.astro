@@ -1,0 +1,107 @@
+---
+import Base from "../layouts/Base.astro";
+import { SITE_NAME } from "../config";
+---
+
+<Base
+  title="About"
+  description="What this archive is, what it is not, where the material comes from, and how to reach us about corrections or takedowns."
+>
+  <div class="content-col py-8">
+    <h1 class="text-2xl font-bold tracking-tight">About</h1>
+
+    <section class="mt-8 border-t border-border pt-6">
+      <h2 class="text-lg font-semibold">What this is</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        On 10 August 2026, students marched on the Jharkhand Legislative
+        Assembly in Ranchi and were met with water cannon, tear gas and a
+        lathi charge. Much of what happened in those weeks was filmed by the
+        people it happened to, and posted publicly, on platforms that do not
+        promise to keep anything.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        {SITE_NAME} keeps a copy. It is a static archive of publicly posted
+        video from that day and the weeks that led to it, preserved so it stays
+        findable after the feeds have moved on.
+      </p>
+    </section>
+
+    <section class="mt-8 border-t border-border pt-6">
+      <h2 class="text-lg font-semibold">Where the material comes from</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        The priority is footage posted by people who were there, rather than
+        material from news organisations — this is a record of what
+        participants saw and chose to publish.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        Every entry keeps its attribution: the platform, the account that posted
+        it, and a link to the original post. That link is on every item in the
+        feed. Attribution is never stripped, and the original is always one tap
+        away so you can check it against the source yourself.
+      </p>
+    </section>
+
+    <section class="mt-8 border-t border-border pt-6">
+      <h2 class="text-lg font-semibold">What this is not</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        This is not a news organisation and it is not an investigation. Nothing
+        here has been independently verified. What this site can tell you is
+        that a given video was publicly posted by a given account on a given
+        date, and that a copy has been kept — no more than that.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        Descriptions are written from what is actually visible in the footage.
+        Where a clip's framing is contested, or where the archive cannot tell
+        what it is looking at, the description says so plainly instead of
+        guessing. If you know better than the description does, the form below
+        is the fastest way to fix it.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        The cover image on the home page is artwork, not footage from the day.
+        Everything in the archive itself is real material from real posts.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        It is also not a social platform. There are no accounts, no comments,
+        and no visitor uploads. There is no live feed and no backend serving
+        pages — every page is built ahead of time from a reviewed data file.
+      </p>
+    </section>
+
+    <section class="mt-8 border-t border-border pt-6">
+      <h2 class="text-lg font-semibold">Timeline</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        The{" "}
+        <a href="/timeline/" class="text-accent no-underline hover:underline"
+          >timeline</a
+        >{" "}
+        traces how this started — years of leaked question papers in
+        Jharkhand's recruitment exams, through the viral answer sheet of July
+        2026 that gave the anger a focus, to the march on the Assembly in
+        August and the cancellations that followed. Each entry links to the
+        reporting it is drawn from, so you can read the sources rather than
+        take this site's word for it.
+      </p>
+    </section>
+
+    <section class="mt-8 border-t border-border pt-6">
+      <h2 class="text-lg font-semibold">Corrections &amp; takedowns</h2>
+      <p class="mt-2 text-sm leading-relaxed text-muted">
+        If you posted something held here and you want it removed, say so and it
+        comes down — no justification needed. Corrections and missing context
+        are just as welcome.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-muted">
+        Where an entry is wrong rather than unwelcome, it is corrected rather
+        than deleted where possible. If media has to be removed, the metadata
+        record is kept with a note, so the record of the removal survives.
+      </p>
+      <p class="mt-4">
+        <a
+          href="/takedown/"
+          class="inline-flex min-h-11 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg no-underline"
+          >Make a request</a
+        >
+      </p>
+    </section>
+  </div>
+</Base>

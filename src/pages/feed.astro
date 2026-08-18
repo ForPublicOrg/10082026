@@ -1,0 +1,67 @@
+---
+import Base from "../layouts/Base.astro";
+import VideoCard from "../components/VideoCard.astro";
+import { loadVideos, publicVideos } from "../lib/schema";
+
+const videos = publicVideos(loadVideos()).sort((a, b) => {
+  if (a.footageOrigin !== b.footageOrigin) {
+    return a.footageOrigin === "participant" ? -1 : 1;
+  }
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  return a.id < b.id ? 1 : -1;
+});
+---
+
+<Base
+  title="Feed"
+  description="An archive of publicly available video, photos, and reporting documenting a specific protest event. Preservation, discoverability, and historical documentation — not commentary."
+  fullBleed
+>
+  <div id="feed" class="feed" role="list" aria-label="Video feed">
+    {videos.map((video, index) => <VideoCard video={video} index={index} />)}
+    {
+      videos.length === 0 && (
+        <div class="feed-empty">
+          <p class="feed-empty-title">No videos in the archive yet.</p>
+          <p class="feed-empty-sub">
+            Footage is being collected and verified. Have footage from the
+            movement? <a href="/">Share it from the home page</a>.
+          </p>
+        </div>
+      )
+    }
+  </div>
+</Base>
+
+<style>
+  .feed {
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .feed-empty {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .feed-empty-title {
+    font-weight: 600;
+  }
+
+  .feed-empty-sub {
+    max-width: 26rem;
+    font-size: 0.875rem;
+    color: var(--color-muted, #a8a8a8);
+  }
+</style>
+
+<script src="../scripts/feed.ts"></script>

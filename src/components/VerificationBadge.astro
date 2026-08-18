@@ -1,0 +1,92 @@
+---
+import type { VerificationStatus } from "../lib/schema";
+
+export interface Props {
+  status: VerificationStatus;
+  /**
+   * Both variants now render against the site's true-black (#000000) app
+   * surface — there is no more separate on-white context (that was the
+   * light-theme attempt earlier on 2026-07-21, since reversed; see
+   * docs/design-spec.md §9). They differ only in how the chip anchors
+   * itself against what's behind it:
+   *
+   * "light" — on a solid black surface (info panels, video detail pages).
+   *           Default. Kept as the prop value (rather than renamed) for
+   *           backward compatibility with existing call sites; it no
+   *           longer means "on-white."
+   * "scrim" — over a video's dark gradient overlay (feed cards), where the
+   *           pixels directly behind the badge aren't guaranteed to be pure
+   *           black. Keeps a stronger opaque chip so it stays legible over
+   *           any footage.
+   *
+   * Text/dot color is identical between variants — both are verified
+   * >= 4.5:1 against #000000 (WCAG AA).
+   */
+  variant?: "light" | "scrim";
+}
+
+const { status, variant = "light" } = Astro.props;
+
+interface StatusConfig {
+  label: string;
+  title: string;
+  /** Text + dot color. Verified >= 4.5:1 against #000000 (WCAG AA). */
+  color: string;
+}
+
+// Re-derived for the true-black theme adopted 2026-07-21 (superseding the
+// light-theme set adopted earlier the same day). Contrast ratios computed
+// with the WCAG relative-luminance formula against #000000 — see
+// docs/design-spec.md §9 for the full table. Muted/informational hues
+// throughout — never alarmist, per verification-policy.md.
+const CONFIG: Record<VerificationStatus, StatusConfig> = {
+  verified: {
+    label: "Verified",
+    title:
+      "Location, date, and source independently confirmed; no signs of manipulation.",
+    color: "#5fd88a", // 11.68:1 vs #000
+  },
+  "likely-verified": {
+    label: "Likely verified",
+    title:
+      "Location and date each supported by a strong indicator; full corroboration incomplete.",
+    color: "#5eead4", // 14.20:1 vs #000
+  },
+  "partially-verified": {
+    label: "Partially verified",
+    title: "Some claims are confirmed; see the description for which parts.",
+    color: "#fbbf24", // 12.58:1 vs #000
+  },
+  unverified: {
+    label: "Unverified",
+    title: "Nothing beyond the existence of the public post has been checked.",
+    color: "#e5e5e5", // 16.67:1 vs #000
+  },
+  "context-unclear": {
+    label: "Context unclear",
+    title:
+      "Footage may be real but its claimed date, place, or framing is in question.",
+    color: "#fb923c", // 9.28:1 vs #000
+  },
+};
+
+const { label, title, color } = CONFIG[status];
+
+const chipStyle =
+  variant === "scrim"
+    ? `background-color: rgba(0,0,0,0.55); border: 1px solid ${color}66; color: ${color};`
+    : `background-color: ${color}14; border: 1px solid ${color}33; color: ${color};`;
+---
+
+<span
+  class="verification-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+  style={chipStyle}
+  title={title}
+  data-variant={variant}
+>
+  <span
+    class="inline-block h-1.5 w-1.5 rounded-full"
+    style={`background-color: ${color};`}
+    aria-hidden="true"></span>
+  {label}
+</span>

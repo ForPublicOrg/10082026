@@ -1,0 +1,395 @@
+---
+// /coverage — the independent-media directory. Everything the archive itself
+// holds is participant footage served from our own R2; this page is the
+// opposite by design: a curated index of the on-ground coverage that
+// independent channels and creators published on their OWN YouTube channels,
+// grouped per channel, every card linking out to the original upload.
+// Nothing is re-hosted, so attribution is not just preserved — the original
+// is the only copy there is.
+import Base from "../layouts/Base.astro";
+import CreatorSection from "../components/CreatorSection.astro";
+import CoverageVideoCard from "../components/CoverageVideoCard.astro";
+import { loadCreators } from "../lib/schema";
+
+const { capturedAt, creators } = loadCreators();
+
+// Channels with enough entries get their own rail; the rest pool into one
+// mixed "More from the ground" rail so no section renders half-empty.
+const RAIL_MIN = 3;
+const railCreators = creators.filter((creator) => creator.videos.length >= RAIL_MIN);
+const soloCreators = creators.filter((creator) => creator.videos.length < RAIL_MIN);
+
+const soloEntries = soloCreators
+  .flatMap((creator) => creator.videos.map((video) => ({ creator, video })))
+  .sort((a, b) =>
+    a.video.publishedAt < b.video.publishedAt ? -1 : a.video.publishedAt > b.video.publishedAt ? 1 : 0,
+  );
+
+const totalVideos = creators.reduce((count, creator) => count + creator.videos.length, 0);
+
+const allDates = creators
+  .flatMap((creator) => creator.videos.map((video) => video.publishedAt))
+  .sort();
+const formatLong = (isoDate: string) =>
+  new Date(`${isoDate}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+// Guarded: with zero creators allDates is empty and formatLong(undefined)
+// would render the literal string "Invalid Date" into the stats line.
+const dateRange =
+  allDates.length > 0
+    ? `${formatLong(allDates[0])} – ${formatLong(allDates[allDates.length - 1])}, 2026`
+    : "—";
+
+const capturedDisplay = new Date(`${capturedAt}T00:00:00Z`).toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+---
+
+<Base
+  title="Coverage"
+  description="News channels and creators who reported from the ground in Ranchi through the JPSC-JSSC protests and the 10 August 2026 march on the Assembly — collected channel by channel, linking to their own YouTube uploads."
+>
+  <div class="cov-col pt-8">
+    <p class="cov-kicker">From the ground &middot; channel by channel</p>
+    <h1 class="text-2xl font-bold tracking-tight mt-1">Coverage</h1>
+    <p class="mt-3 text-sm leading-relaxed text-muted cov-lede">
+      From Ranchi newsrooms to national broadcasters, channels and creators
+      filmed this movement where it happened — the stadium sit-in, the hunger
+      strike, the day of the march, and the cancellations that followed. This
+      page collects that coverage, channel by channel.
+    </p>
+    <p class="mt-3 text-sm leading-relaxed text-muted cov-lede">
+      Nothing here is an archived copy. Every card opens the video where it
+      lives: on the channel of the person who filmed it.
+    </p>
+    <p class="cov-stats" aria-label="Collection summary">
+      <span class="cov-stat"><strong>{creators.length}</strong> channels</span>
+      <span aria-hidden="true">&middot;</span>
+      <span class="cov-stat"><strong>{totalVideos}</strong> videos</span>
+      <span aria-hidden="true">&middot;</span>
+      <span class="cov-stat">{dateRange}</span>
+    </p>
+  </div>
+
+  <div class="cov-index-wrap">
+    <nav class="cov-index cov-col" aria-label="Channels on this page">
+      {
+        railCreators.map((creator) => (
+          <a href={`#${creator.id}`}>
+            {creator.avatar ? (
+              <img class="cov-chip-avatar" src={creator.avatar} alt="" loading="lazy" decoding="async" width="88" height="88" />
+            ) : (
+              <span class="cov-chip-avatar" aria-hidden="true">
+                {creator.name.trim().charAt(0).toUpperCase()}
+              </span>
+            )}
+            {creator.name}
+          </a>
+        ))
+      }
+      <a href="#more-from-the-ground">
+        <span class="cov-chip-avatar" aria-hidden="true">+</span>
+        More
+      </a>
+    </nav>
+  </div>
+
+  <div class="cov-col">
+    {railCreators.map((creator) => <CreatorSection creator={creator} />)}
+
+    <section
+      class="cov-more"
+      id="more-from-the-ground"
+      aria-labelledby="more-from-the-ground-heading"
+    >
+      <header class="cov-more-header">
+        <div class="cov-more-text">
+          <h2 id="more-from-the-ground-heading">More from the ground</h2>
+          <p>
+            Channels that appear here with one or two reports — ground
+            reports, interviews, or dispatches — from the days around the
+            march.
+          </p>
+        </div>
+        <div class="cov-rail-controls" hidden>
+          <button type="button" data-rail-prev aria-label="Scroll more-from-the-ground videos back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg>
+          </button>
+          <button type="button" data-rail-next aria-label="Scroll more-from-the-ground videos forward">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="cov-rail" data-rail tabindex="0" role="group" aria-label="More from the ground — videos">
+        {
+          soloEntries.map(({ creator, video }) => (
+            <CoverageVideoCard video={video} creator={creator} showChannel />
+          ))
+        }
+      </div>
+    </section>
+
+    <p class="cov-note">
+      Channel names, video titles and subscriber counts are as captured
+      on&nbsp;{capturedDisplay}. Inclusion records that a channel published on-ground
+      coverage of these events — it is not an endorsement, and none of these
+      channels are affiliated with this archive.
+    </p>
+  </div>
+</Base>
+
+<script src="../scripts/coverage.ts"></script>
+
+<style>
+  /* Wider than .content-col (36rem): rails of 300px cards need room to be a
+     collection rather than a single column — but the same 1rem gutters. */
+  .cov-col {
+    max-width: 64rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+
+  .cov-kicker {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-tertiary);
+  }
+
+  .cov-lede {
+    max-width: 44rem;
+  }
+
+  .cov-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    row-gap: 0.25rem;
+    margin: 1.25rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cov-stat strong {
+    color: var(--color-text);
+    font-weight: 700;
+  }
+
+  /* Sticky channel index: full-width solid-black bar (same "one continuous
+     black surface" rule as the app header — never translucent) holding a
+     horizontally scrollable chip row. */
+  .cov-index-wrap {
+    position: sticky;
+    top: var(--app-header-h);
+    z-index: 30;
+    margin-top: 1.5rem;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .cov-index {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-block: 0.6rem;
+    scrollbar-width: none;
+    /* Same edge-fade recipe as the rails: a clipped chip fading out reads as
+       "more this way", not as a rendering glitch. */
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+  }
+
+  .cov-index::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cov-index a {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem 0.3rem 0.35rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-muted);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .cov-index a:hover {
+    color: var(--color-text);
+    border-color: var(--color-tertiary);
+  }
+
+  .cov-index a[aria-current="true"] {
+    color: var(--color-text);
+    border-color: var(--color-text);
+  }
+
+  .cov-chip-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 0.65rem;
+    font-weight: 700;
+  }
+
+  img.cov-chip-avatar {
+    object-fit: cover;
+  }
+
+  /* --- "More from the ground" (mixed rail) --- */
+
+  .cov-more {
+    padding-top: 2rem;
+    margin-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    scroll-margin-top: calc(var(--app-header-h) + 4.25rem);
+  }
+
+  .cov-more-header {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+
+  .cov-more-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .cov-more-text h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .cov-more-text p {
+    margin: 0.4rem 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--color-muted);
+    max-width: 44rem;
+  }
+
+  /* Rail + controls: same recipe as CreatorSection's scoped styles — kept
+     duplicated rather than hoisted global so each component stays
+     self-contained (see that file). */
+  .cov-rail-controls {
+    display: none;
+    gap: 0.4rem;
+  }
+
+  .cov-rail-controls[hidden] {
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .cov-rail-controls:not([hidden]) {
+      display: flex;
+    }
+  }
+
+  .cov-rail-controls button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .cov-rail-controls button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .cov-rail-controls svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .cov-rail {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    scroll-padding-inline: 1rem;
+    padding-bottom: 0.25rem;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+  }
+
+  .cov-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cov-rail:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.65);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  .cov-note {
+    margin: 2.5rem 0 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--color-muted);
+    max-width: 44rem;
+  }
+</style>

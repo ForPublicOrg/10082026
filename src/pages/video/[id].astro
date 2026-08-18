@@ -1,0 +1,194 @@
+---
+import Base from "../../layouts/Base.astro";
+import { loadVideos, publicVideos } from "../../lib/schema";
+import { MEDIA_BASE, SITE_URL } from "../../config";
+import type { VideoEntry } from "../../lib/schema";
+
+export function getStaticPaths() {
+  // Sample/placeholder entries get no page at all — the id 404s via
+  // Cloudflare's not_found_handling, same as any other unknown video id.
+  const videos = publicVideos(loadVideos());
+  return videos.map((video) => ({
+    params: { id: video.id },
+    props: { video },
+  }));
+}
+
+interface Props {
+  video: VideoEntry;
+}
+
+const { video } = Astro.props;
+const allVideos = publicVideos(loadVideos());
+
+function relatedScore(other: VideoEntry): number {
+  if (other.id === video.id) return -1;
+  const sharedTags = other.tags.filter((tag) => video.tags.includes(tag)).length;
+  let score = sharedTags * 2;
+  if (other.date === video.date) score += 1;
+  // Both having a location AND it matching is a real signal; both simply
+  // lacking a location is not — it would otherwise inflate the score for
+  // every pair of not-yet-geolocated entries with nothing in common.
+  if (video.location && other.location === video.location) score += 1;
+  return score;
+}
+
+const relatedVideos = allVideos
+  .map((other) => ({ video: other, score: relatedScore(other) }))
+  .filter((entry) => entry.score > 0)
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 4)
+  .map((entry) => entry.video);
+
+const videoSrc = `${MEDIA_BASE}${video.media.video}`;
+const thumbSrc = `${MEDIA_BASE}${video.media.thumbnail}`;
+// og:image must be absolute. MEDIA_BASE may be site-relative (current state:
+// "/media/") or an absolute https:// URL (after the R2 cutover) — handle
+// both, and never blindly prepend SITE_URL to an already-absolute URL (that
+// produced a malformed og:image in the archive this site was forked from).
+const absoluteThumbSrc = thumbSrc.startsWith("http") ? thumbSrc : `${SITE_URL}${thumbSrc}`;
+
+const eventDate = new Date(video.date).toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+const archivedDate = new Date(video.archivedAt).toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+const publishedDate = new Date(video.source.publishedAt).toLocaleDateString(
+  "en-US",
+  { year: "numeric", month: "long", day: "numeric" },
+);
+
+const durationLabel = `${Math.floor(video.media.duration / 60)}:${String(
+  video.media.duration % 60,
+).padStart(2, "0")}`;
+
+const truncatedDescription =
+  video.description.length > 200
+    ? `${video.description.slice(0, 197)}...`
+    : video.description;
+---
+
+<Base
+  title={video.title}
+  description={truncatedDescription}
+  ogImage={absoluteThumbSrc}
+  ogType="video.other"
+>
+  <div class="content-col py-8">
+    <div
+      class="video-player-wrap mx-auto mb-6 flex w-full items-center justify-center bg-letterbox"
+      style={`aspect-ratio: ${video.media.width} / ${video.media.height};`}
+    >
+      <video
+        controls
+        preload="metadata"
+        poster={thumbSrc}
+        src={videoSrc}
+        width={video.media.width}
+        height={video.media.height}
+        class="h-full max-h-[80svh] w-full object-contain"
+      >
+        <track kind="captions" />
+      </video>
+    </div>
+
+    <h1 class="text-2xl font-bold leading-snug tracking-tight">{video.title}</h1>
+
+    <dl class="metadata mt-5 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-border pt-5 text-sm sm:grid-cols-2">
+      <div>
+        <dt class="text-xs text-muted">Event date</dt>
+        <dd class="mt-0.5 font-medium">{eventDate}</dd>
+      </div>
+      {
+        video.location && (
+          <div>
+            <dt class="text-xs text-muted">Location</dt>
+            <dd class="mt-0.5 font-medium">{video.location}</dd>
+          </div>
+        )
+      }
+      <div>
+        <dt class="text-xs text-muted">Platform</dt>
+        <dd class="mt-0.5 font-medium">{video.source.platform}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">Uploader</dt>
+        <dd class="mt-0.5 font-medium">{video.source.uploader}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">Published</dt>
+        <dd class="mt-0.5 font-medium">{publishedDate}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">Archived</dt>
+        <dd class="mt-0.5 font-medium">{archivedDate}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">Duration</dt>
+        <dd class="mt-0.5 font-medium">{durationLabel}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">Original source</dt>
+        <dd class="mt-0.5">
+          <a
+            href={video.source.url}
+            rel="noopener nofollow"
+            target="_blank"
+            class="inline-flex min-h-11 items-center font-medium text-accent no-underline hover:underline"
+          >
+            View original &rarr;
+          </a>
+        </dd>
+      </div>
+    </dl>
+
+    <p class="mt-6 whitespace-pre-line text-base leading-relaxed">
+      {video.description}
+    </p>
+
+    {
+      video.tags.length > 0 && (
+        <div class="mt-4 flex flex-wrap gap-2">
+          {video.tags.map((tag) => (
+            <span class="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-muted">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )
+    }
+
+    {
+      relatedVideos.length > 0 && (
+        <section class="mt-12 border-t border-border pt-6">
+          <h2 class="text-lg font-semibold">Related videos</h2>
+          <div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {relatedVideos.map((related) => (
+              <a
+                href={`/video/${related.id}/`}
+                class="group flex flex-col gap-1.5 no-underline"
+              >
+                <img
+                  src={`${MEDIA_BASE}${related.media.thumbnail}`}
+                  alt={related.title}
+                  width="180"
+                  height="320"
+                  loading="lazy"
+                  class="aspect-[9/16] w-full rounded-md border border-border bg-surface object-cover"
+                />
+                <span class="line-clamp-2 text-xs text-muted group-hover:text-text">
+                  {related.title}
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )
+    }
+  </div>
+</Base>

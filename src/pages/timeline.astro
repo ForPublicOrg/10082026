@@ -1,0 +1,49 @@
+---
+import Base from "../layouts/Base.astro";
+import TimelineEvent from "../components/TimelineEvent.astro";
+import { loadTimeline, loadVideos, publicVideos } from "../lib/schema";
+
+const events = [...loadTimeline()].sort((a, b) =>
+  a.time < b.time ? -1 : a.time > b.time ? 1 : 0,
+);
+const videos = publicVideos(loadVideos());
+const videosById = new Map(videos.map((video) => [video.id, video]));
+---
+
+<Base
+  title="Timeline"
+  description="Chronological timeline of events in the 10.08.2026 archive, each linked to the related video entries."
+>
+  <div class="content-col py-8">
+    <h1 class="text-2xl font-bold tracking-tight">Timeline</h1>
+    <p class="mt-2 text-sm leading-relaxed text-muted">
+      How a viral answer sheet became a march on the Vidhan Sabha. The anger
+      was already there — question papers have leaked around Jharkhand's
+      recruitment exams since at least 2003, the JSSC-CGL exam was cancelled
+      and re-held and leaked again through 2024, and a CID report that found
+      most of one paper's questions had leaked was shelved. What the 14th
+      JPSC results showed in July 2026 gave it a spark.
+    </p>
+    <p class="mt-3 text-sm leading-relaxed text-muted">
+      Each entry links to the reporting it is drawn from, and to the related
+      footage held in this archive. Where the people at the centre of these
+      events spoke publicly - the Chief Minister, the Governor, the ministers,
+      the Ranchi police, the student leaders - their words are quoted as the
+      cited reporting carried them. Where an entry has no such quote, none
+      was found.
+    </p>
+
+    <ol class="mt-8 border-t border-border pt-2">
+      {
+        events.map((event) => (
+          <TimelineEvent
+            event={event}
+            videos={event.relatedVideoIds
+              .map((id) => videosById.get(id))
+              .filter((v): v is NonNullable<typeof v> => Boolean(v))}
+          />
+        ))
+      }
+    </ol>
+  </div>
+</Base>

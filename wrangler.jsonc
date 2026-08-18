@@ -1,0 +1,153 @@
+{
+  "name": "redsoil",
+  "compatibility_date": "2026-07-21",
+  // The site is still a static build. `main` exists so POSTs to /api/takedown
+  // have somewhere to land, and so the www.10082026.com -> 10082026.com
+  // redirect in src/worker.ts can run (see below) — everything else is
+  // delegated straight back to env.ASSETS.fetch().
+  "main": "./src/worker.ts",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // Without this, a request whose path matches a file in `dist/` is
+    // served directly by Cloudflare's edge WITHOUT invoking the Worker at
+    // all — regardless of hostname. Since www.10082026.com and 10082026.com
+    // share this same Worker+assets pair, that would mean every real page
+    // (anything matching a static file) serves identical content on both
+    // hosts instead of the Worker ever getting a chance to redirect www.
+    // run_worker_first only matches by path, not hostname, so there's no
+    // way to scope this to just the www route — it has to be true for
+    // every request. (Confirmed necessary on the 20072026.com archive this
+    // site is forked from, by testing production directly.)
+    "run_worker_first": true
+  },
+  // Without this, Workers Logs retains NOTHING — console.error() in
+  // src/worker.ts goes nowhere unless someone happens to have `wrangler tail`
+  // attached at that moment. (Lesson inherited from the 20072026.com archive,
+  // where a public upload failure had to be reconstructed from orphaned D1
+  // rows because there were no Worker logs at all.) Inherited by the staging
+  // environment below (observability is an inheritable key).
+  //
+  // head_sampling_rate is 1 (log everything): this Worker only runs for /api/*
+  // plus one redirect, so the volume is nowhere near the free tier's daily
+  // allowance. Note that requests rejected at the edge — plan-level
+  // request-body 413s — never invoke the Worker and so will NOT appear here
+  // no matter what this is set to; those are only visible in the zone's HTTP
+  // analytics.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  // FIRST-TIME SETUP: every database_id below is a placeholder. Create the
+  // real databases with `wrangler d1 create <database_name>` (six of them:
+  // three production, three staging) and paste each returned id here before
+  // the first deploy. Local dev and tests do not need real ids.
+  "d1_databases": [
+    {
+      // Private inbox for correction/takedown requests. Nothing in this
+      // database is ever rendered back onto the public site.
+      "binding": "TAKEDOWNS",
+      "database_name": "redsoil-takedowns",
+      "database_id": "00000000-0000-0000-0000-000000000001"
+    },
+    {
+      // Private inbox for "Submit a video" requests (link or raw upload) from
+      // the home page. Separate database from TAKEDOWNS so the two request
+      // types never share a table. migrations_dir MUST be set here — left at
+      // the wrangler default ("migrations/") it would collide with the
+      // TAKEDOWNS migration folder above and try to apply the wrong schema.
+      "binding": "SUBMISSIONS",
+      "database_name": "redsoil-video-submissions",
+      "database_id": "00000000-0000-0000-0000-000000000002",
+      "migrations_dir": "migrations/video-submissions"
+    },
+    {
+      // Public like counts, one row per (video_id, client_id) pair. Separate
+      // database from TAKEDOWNS/SUBMISSIONS since likes are the only one of
+      // the three that IS rendered back onto the public site. migrations_dir
+      // MUST be set here — left at the wrangler default ("migrations/") it
+      // would collide with the TAKEDOWNS migration folder above and try to
+      // apply the wrong schema.
+      "binding": "LIKES",
+      "database_name": "redsoil-likes",
+      "database_id": "00000000-0000-0000-0000-000000000003",
+      "migrations_dir": "migrations/likes"
+    }
+  ],
+  "r2_buckets": [
+    {
+      // Private landing zone for raw footage uploaded via /api/upload/:id.
+      // Deliberately NOT the public redsoil-media bucket: nothing here is
+      // ever served publicly — only src/worker.ts (write) and an admin's
+      // authenticated `wrangler r2 object get` (read) ever touch it.
+      // FIRST-TIME SETUP: `wrangler r2 bucket create redsoil-uploads` (and
+      // redsoil-uploads-staging, and the public redsoil-media bucket that
+      // scripts/collect.mjs pushes to, bound to media.10082026.com).
+      "binding": "UPLOADS",
+      "bucket_name": "redsoil-uploads"
+    }
+  ],
+  // Served from an existing zone in the account, so no workers.dev subdomain
+  // is needed. Cloudflare creates and manages the DNS record for a
+  // custom_domain route automatically. 10082026.com is the permanent domain;
+  // www has no DNS record of its own otherwise, and only exists to be
+  // 301-redirected to the apex — see the hostname check at the top of
+  // src/worker.ts's fetch handler.
+  "routes": [
+    { "pattern": "10082026.com", "custom_domain": true },
+    { "pattern": "www.10082026.com", "custom_domain": true }
+  ],
+
+  // Staging environment used by CI on every pull request (see
+  // .github/workflows/deploy.yml and .claude/skills/deploy/SKILL.md).
+  "env": {
+    "staging": {
+      "name": "redsoil-staging",
+      // `main`, `assets`, `compatibility_date` are inheritable — no need to
+      // repeat them. `d1_databases` is a binding (non-inheritable) and MUST
+      // get its own database so test takedown submissions never land in the
+      // production table. `routes` is inheritable and MUST be explicitly
+      // overridden here — left unset, it would silently reattach the live
+      // 10082026.com custom domain to this Worker on every staging deploy
+      // (see cloudflare/workers-sdk#13925). Deliberately NOT using
+      // `workers_dev: true` here: this account has never registered a
+      // workers.dev subdomain (a one-time, permanent, account-wide
+      // registration) and staging shouldn't be the thing that triggers it.
+      // staging.10082026.com is a route on the zone we already own instead.
+      "routes": [{ "pattern": "staging.10082026.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "TAKEDOWNS",
+          "database_name": "redsoil-takedowns-staging",
+          "database_id": "00000000-0000-0000-0000-000000000011"
+        },
+        {
+          "binding": "SUBMISSIONS",
+          "database_name": "redsoil-video-submissions-staging",
+          "database_id": "00000000-0000-0000-0000-000000000012",
+          "migrations_dir": "migrations/video-submissions"
+        },
+        {
+          // Separate database from production, same reasoning as
+          // TAKEDOWNS/SUBMISSIONS above — test likes must never land in the
+          // production table.
+          "binding": "LIKES",
+          "database_name": "redsoil-likes-staging",
+          "database_id": "00000000-0000-0000-0000-000000000013",
+          "migrations_dir": "migrations/likes"
+        }
+      ],
+      // Separate bucket from production, unlike redsoil-media — uploads are
+      // live user-submitted data, not shared reference content, so a test
+      // upload on staging must never land in the production bucket (same
+      // reasoning as the staging/production D1 split above).
+      "r2_buckets": [
+        {
+          "binding": "UPLOADS",
+          "bucket_name": "redsoil-uploads-staging"
+        }
+      ]
+    }
+  }
+}

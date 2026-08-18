@@ -1,0 +1,22 @@
+node_modules
+dist
+archive-originals/
+.wrangler
+.astro
+
+# JetBrains IDE
+.idea/
+
+# Local working copies of raw media (not the served copies). NOTE: unlike
+# the parent archive, this fork currently serves compressed media from
+# public/media/ (MEDIA_BASE = "/media/") because the redsoil-media R2 bucket
+# doesn't exist yet — public/media/ IS committed. After the R2 cutover,
+# reinstate the parent archive's arrangement (push to the bucket, flip
+# MEDIA_BASE, and stop committing public/media/).
+/media/
+.DS_Store
+
+# Test artifacts
+test-results/
+playwright-report/
+blob-report/

@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-public, non-secret identifiers"
+regexes = [
+  # D1 database_id placeholders in wrangler.jsonc — Cloudflare resource
+  # identifiers tied to this project's own account, not bearer credentials.
+  # When the real databases are created (`wrangler d1 create`), add each
+  # real id here before committing wrangler.jsonc.
+  '''00000000-0000-0000-0000-0000000000\d\d''',
+]

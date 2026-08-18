@@ -1,0 +1,393 @@
+---
+import "../styles/global.css";
+import { ClientRouter } from "astro:transitions";
+import { SITE_NAME, SITE_URL } from "../config";
+
+export interface Props {
+  title: string;
+  description: string;
+  ogImage?: string;
+  ogType?: string;
+  canonical?: string;
+  /**
+   * When true, the layout gives up default page padding/scroll: the <body>
+   * gets `overflow: hidden` (no document scroll) and <main> is sized to
+   * exactly fill the viewport below the header (minus the nav bar height on
+   * desktop, where the nav sits in-flow rather than fixed). The page is then
+   * responsible for its own scroll container — this is for the full-bleed,
+   * fixed-height feed, not for normal content pages.
+   */
+  fullBleed?: boolean;
+  /**
+   * Landing-page-only: omits the sticky app header entirely (no visible
+   * site title bar) so a full-viewport hero poster isn't pushed down or
+   * duplicated by a text wordmark. Every other route keeps the header.
+   */
+  hideHeader?: boolean;
+  /**
+   * Landing-page-only: forces the bottom tab bar to float
+   * (`position: fixed`) over the page content at EVERY breakpoint,
+   * including desktop (where it normally sits in-flow as a static top bar
+   * — see the >=768px media query below). Needed so a full `100svh` hero
+   * is never shortened by an in-flow nav bar claiming its own space.
+   */
+  overlayNav?: boolean;
+  /**
+   * Landing-page-only: omits the standard site footer, which spells out the
+   * site name in its disclaimer copy. The landing page must render no
+   * visible site-name text anywhere (the poster carries all titling); every
+   * other route keeps the footer as-is.
+   */
+  hideFooter?: boolean;
+}
+
+const {
+  title,
+  description,
+  ogImage = `${SITE_URL}/og-default.png`,
+  ogType = "website",
+  canonical = new URL(Astro.url.pathname, SITE_URL).toString(),
+  fullBleed = false,
+  hideHeader = false,
+  overlayNav = false,
+  hideFooter = false,
+} = Astro.props;
+
+const pageTitle = `${title} — ${SITE_NAME}`;
+
+const path = Astro.url.pathname;
+const isHome = path === "/";
+const isFeed = path.startsWith("/feed");
+const isTimeline = path.startsWith("/timeline");
+const isCoverage = path.startsWith("/coverage");
+const isAbout = path.startsWith("/about");
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
+
+    <!-- "Add to Home Screen" / native-app affordances -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content={ogType} />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <ClientRouter />
+  </head>
+  <body
+    class:list={[
+      "bg-bg",
+      "text-text",
+      { "is-full-bleed": fullBleed, "is-nav-overlay": overlayNav },
+    ]}
+  >
+    {
+      !hideHeader && (
+        <header class="app-header border-b border-border">
+          <div class="content-col flex items-center justify-center py-3">
+            {/* Dotted display mark, not the plain-text SITE_NAME used in
+                <title>/meta — the date-as-wordmark treatment is inherited
+                from the parent archive: kept small and restrained (not a
+                leftover text label) since a heavier header read poorly on
+                content pages. */}
+            <a href="/" class="wordmark no-underline" aria-label="10.08.2026 — home">
+              10<span class="wordmark-dot" aria-hidden="true">&middot;</span>08<span class="wordmark-dot" aria-hidden="true">&middot;</span>2026
+            </a>
+          </div>
+        </header>
+      )
+    }
+
+    <!--
+      Icon-only bottom tab bar (Instagram pattern): no text labels — the
+      single biggest "this is a website" tell was the "Home"/"Feed"/
+      "Timeline"/"About" captions under each icon. Active state is a filled
+      glyph vs an outline glyph (also Instagram's own convention), not a
+      colour pill. Each icon is a uniform 24px box, ~1.75px stroke, one
+      family. The "filled" paths use a hardcoded #000 for negative-space
+      details (the door notch, play triangle, clock hands, the "i" dot) —
+      safe because the nav's background is always solid #000, so the cutout
+      always matches it exactly, the same technique Instagram's own icon set
+      uses. `aria-label` keeps each link accessible without a visible
+      caption.
+
+      Home links to `/`, the landing page — previously this house glyph was
+      the "Feed" tab back when the feed itself was the landing page (see
+      docs/design-spec.md §7, "supersedes" note, 2026-07-21). Feed now gets
+      its own tab (a reels-style play glyph) pointing at `/feed`.
+    -->
+    <nav class="app-nav border-border" aria-label="Primary">
+      <a href="/" aria-current={isHome ? "page" : undefined} aria-label="Home">
+        {isHome ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z" fill="currentColor" stroke="none" />
+            <rect x="10.25" y="14.25" width="3.5" height="5.75" fill="#000" rx="0.5" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z" />
+          </svg>
+        )}
+      </a>
+      <a href="/feed" aria-current={isFeed ? "page" : undefined} aria-label="Feed">
+        {isFeed ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="5" fill="currentColor" stroke="none" />
+            <path d="M10.5 8.5v7l6-3.5z" fill="#000" stroke="none" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="5" />
+            <path d="M10.5 8.5v7l6-3.5z" fill="currentColor" stroke="none" />
+          </svg>
+        )}
+      </a>
+      <a href="/timeline/" aria-current={isTimeline ? "page" : undefined} aria-label="Timeline">
+        {isTimeline ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" fill="currentColor" stroke="none" />
+            <path d="M12 7.5V12l3 2" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 7.5V12l3 2" />
+          </svg>
+        )}
+      </a>
+      <a href="/coverage/" aria-current={isCoverage ? "page" : undefined} aria-label="Coverage">
+        {isCoverage ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2.5" y="6" width="13" height="12" rx="3" fill="currentColor" stroke="none" />
+            <path d="M15.5 10.75 21 7.75v8.5l-5.5-3z" fill="currentColor" stroke="none" />
+            <circle cx="9" cy="12" r="2.1" fill="#000" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2.5" y="6" width="13" height="12" rx="3" />
+            <path d="M15.5 10.75 21 7.75v8.5l-5.5-3z" />
+            <circle cx="9" cy="12" r="2.1" />
+          </svg>
+        )}
+      </a>
+      <a href="/about/" aria-current={isAbout ? "page" : undefined} aria-label="About">
+        {isAbout ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" fill="currentColor" stroke="none" />
+            <path d="M12 11v5" stroke="#000" stroke-width="1.75" stroke-linecap="round" />
+            <circle cx="12" cy="8" r="0.9" fill="#000" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 11v5" />
+            <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
+          </svg>
+        )}
+      </a>
+    </nav>
+
+    <main>
+      <slot />
+    </main>
+
+    {
+      !fullBleed && !hideFooter && (
+        <footer class="border-t border-border">
+          <div class="content-col py-8 text-sm text-muted flex flex-col gap-2">
+            <p>
+              10&middot;08&middot;2026 is an archive of publicly available video and
+              reporting. Preservation, discoverability, documentation — not
+              commentary.
+            </p>
+            <p>
+              <a
+                href="/takedown/"
+                class="text-accent no-underline hover:underline"
+                >Corrections &amp; takedowns</a
+              >
+            </p>
+            <p>This is an archive, not an endorsement.</p>
+          </div>
+        </footer>
+      )
+    }
+  </body>
+</html>
+
+<style>
+  /* Solid true black, not translucent: a blurred/translucent bar would let
+     whatever scrolls beneath it (video frames, etc.) show through as
+     non-black colour, breaking the "one continuous black surface" goal. */
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: var(--app-header-h);
+    background: var(--color-bg);
+  }
+
+  /* Minimal display mark for the app header — deliberately restrained
+     (small, tight, no card/pill treatment) since the bottom/top nav already
+     provides orientation on every content page; this exists only as a home
+     link + a quiet brand touch, not a repeat of the poster's big numerals. */
+  .wordmark {
+    display: inline-flex;
+    align-items: baseline;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+  }
+
+  .wordmark-dot {
+    margin: 0 0.05em;
+    color: var(--color-tertiary);
+  }
+
+  .app-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    height: var(--app-nav-h);
+    background: var(--color-bg);
+    border-top: 1px solid var(--color-border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .app-nav a {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px 4px;
+    color: var(--color-muted);
+    text-decoration: none;
+  }
+
+  .app-nav a[aria-current="page"] {
+    color: var(--color-text);
+  }
+
+  .app-nav svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Default (non-full-bleed) pages: leave room so content isn't hidden
+     behind the fixed bottom tab bar. */
+  body:not(.is-full-bleed) main {
+    padding-bottom: calc(var(--app-nav-h) + env(safe-area-inset-bottom));
+  }
+
+  /* Full-bleed pages own their scroll: no document scroll, main fills the
+     exact remaining viewport below the header. The fixed bottom nav floats
+     (solid black) over the content, so no extra padding is added here. */
+  body.is-full-bleed {
+    height: 100svh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body.is-full-bleed main {
+    height: calc(100svh - var(--app-header-h));
+    height: calc(100dvh - var(--app-header-h));
+    overflow: hidden;
+  }
+
+  /* >=768px: the bottom tab bar becomes a fixed left sidebar (Instagram's
+     own desktop pattern) instead of a stretched-phone bottom bar. It's a
+     permanent rail, not a floating overlay — main is given matching
+     margin-left below so page content sits inset from it, the same way
+     Instagram's feed column never renders underneath its sidebar. This
+     replaces the old "static in-flow top bar on content pages / fixed
+     floating bottom bar on the landing page" split entirely: on desktop
+     it's always a left rail, full stop. */
+  @media (min-width: 768px) {
+    .app-nav {
+      position: fixed;
+      left: 0;
+      right: auto;
+      /* Sits below the sticky header by default; body.is-nav-overlay
+         (landing page only, which hides the header) overrides this to 0
+         so the rail runs the full viewport height. */
+      top: var(--app-header-h);
+      bottom: 0;
+      width: var(--app-nav-w-desktop);
+      height: auto;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 1.75rem;
+      padding: 2rem 0 1rem;
+      border-top: none;
+      border-right: 1px solid var(--color-border);
+    }
+
+    .app-nav a {
+      flex: none;
+      min-height: 44px;
+      min-width: 44px;
+      padding: 10px;
+    }
+
+    body:not(.is-full-bleed) main {
+      padding-bottom: 0;
+      margin-left: var(--app-nav-w-desktop);
+    }
+
+    /* Full-bleed pages (e.g. /feed): the rail no longer claims any vertical
+       space (it's a fixed sidebar, not an in-flow bar), so height only
+       needs to clear the header. Horizontal clearance comes from
+       margin-left below, same as every other page. */
+    body.is-full-bleed main {
+      height: calc(100svh - var(--app-header-h));
+      height: calc(100dvh - var(--app-header-h));
+      margin-left: var(--app-nav-w-desktop);
+    }
+  }
+
+  /* Landing page only: no header exists to sit below (hideHeader), so the
+     rail runs the full viewport height from the top instead of starting
+     at var(--app-header-h). */
+  @media (min-width: 768px) {
+    body.is-nav-overlay .app-nav {
+      top: 0;
+    }
+  }
+</style>

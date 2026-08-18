@@ -1,0 +1,773 @@
+/**
+ * Cloudflare Worker entry point.
+ *
+ * The site is still a static Astro build — this Worker exists for exactly one
+ * reason: to accept POSTs from /takedown/ so the archive can be reachable for
+ * corrections and removal requests WITHOUT publishing a personal email address
+ * on a public page. Everything else is delegated straight back to the static
+ * asset server.
+ *
+ * Because `assets` is configured alongside `main`, Cloudflare serves matching
+ * static assets WITHOUT invoking this Worker at all. This code therefore only
+ * runs for paths that aren't files in dist/ — in practice, /api/*.
+ *
+ * Minimal hand-rolled types below rather than @cloudflare/workers-types: this
+ * file is inside the Astro project's tsconfig `include`, and the Workers DOM
+ * type overrides collide with Astro's strict DOM lib.
+ */
+
+import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "./lib/upload-limits";
+
+interface D1Result<T = unknown> {
+  results: T[];
+}
+
+interface D1RunResult {
+  meta: { last_row_id: number };
+}
+
+interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  run(): Promise<D1RunResult>;
+  all<T = unknown>(): Promise<D1Result<T>>;
+}
+
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+}
+
+interface AssetsBinding {
+  fetch(request: Request): Promise<Response>;
+}
+
+/** Minimal hand-rolled R2 types — same rationale as the D1 ones above. */
+interface R2HttpMetadata {
+  contentType?: string;
+}
+
+interface R2PutOptions {
+  httpMetadata?: R2HttpMetadata;
+  customMetadata?: Record<string, string>;
+}
+
+interface R2Bucket {
+  put(key: string, value: ReadableStream | ArrayBuffer | null, options?: R2PutOptions): Promise<unknown>;
+}
+
+/**
+ * Workers-runtime global, not part of the DOM lib astro/tsconfigs/strict
+ * pulls in. R2Bucket.put() requires a stream with a known length — piping an
+ * arbitrary ReadableStream (e.g. through a counting TransformStream) into it
+ * fails at runtime with "Provided readable stream must have a known length".
+ * FixedLengthStream is the platform's own fix: it declares the length up
+ * front and errors if the actual byte count doesn't match.
+ */
+declare class FixedLengthStream {
+  constructor(length: number);
+  readonly readable: ReadableStream<Uint8Array>;
+  readonly writable: WritableStream<Uint8Array>;
+}
+
+/** Minimal hand-rolled type — same rationale as the other Workers-runtime
+ *  globals above. Only the one method handleLikesBatch needs, to schedule
+ *  the edge-cache write without blocking the response on it. */
+interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+interface Env {
+  ASSETS: AssetsBinding;
+  TAKEDOWNS: D1Database;
+  SUBMISSIONS: D1Database;
+  LIKES: D1Database;
+  UPLOADS: R2Bucket;
+}
+
+/** Accepted values for the request `kind` field. */
+const KINDS = new Set(["takedown", "correction", "context", "other"]);
+
+/**
+ * Field caps. These are generous for a human and hostile to anyone trying to
+ * push megabytes into the row — D1 rows are cheap but not free, and an
+ * unbounded TEXT column on a public endpoint is an obvious abuse vector.
+ */
+const MAX_MESSAGE = 4000;
+const MAX_SHORT_FIELD = 300;
+const MAX_DESCRIPTION = 2000;
+
+/**
+ * Crude global flood cap: total submissions accepted per minute across all
+ * callers. This is deliberately NOT per-IP — we don't store IPs (see below),
+ * so we can't rate limit by them. It won't stop a determined attacker, but it
+ * bounds the damage from a naive script. Turnstile is the real fix and is the
+ * intended next step; see docs.
+ */
+const MAX_PER_MINUTE = 20;
+
+/** Raw uploads get a stricter per-minute cap than link submissions or takedowns
+ *  — each one is a real file landing in R2, not just a DB row. */
+const MAX_UPLOADS_PER_MINUTE = 5;
+
+/** Like/unlike is much higher-frequency and lower-stakes than a takedown or
+ *  submission — same global-not-per-IP tradeoff as MAX_PER_MINUTE above. */
+const MAX_LIKES_PER_MINUTE = 60;
+
+/** Per-file cap for raw footage uploads. Defined in src/lib/upload-limits.ts
+ *  so the Worker, the submit form, and its copy can't drift apart — read the
+ *  comment there before changing it, it is bounded by the Cloudflare plan's
+ *  edge-enforced request-body limit, not by anything in this file. */
+
+/** Total upload bytes accepted per rolling day, across all uploads — bounds
+ *  storage-cost abuse even though (per the takedown design above) we don't
+ *  track individual submitters by IP. */
+const MAX_DAILY_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
+
+/** Allowed MIME types for raw video uploads. Shallow check only — the Worker
+ *  can't run ffprobe, so real content validation happens admin-side after
+ *  `scripts/admin-requests.mjs download`, using the same local ffmpeg/ffprobe
+ *  toolchain scripts/collect.mjs already requires. */
+const UPLOAD_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-matroska",
+  "video/3gpp",
+]);
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "video/x-matroska": "mkv",
+  "video/3gpp": "3gp",
+};
+
+/**
+ * Served only to no-JavaScript form submissions. Deliberately self-contained
+ * and inline-styled: it is generated by the Worker, not by the Astro build, so
+ * it has no access to the hashed /_astro/*.css bundle.
+ */
+const CONFIRMATION_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Request received — 10.08.2026</title>
+<style>
+  html{color-scheme:dark}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:#000;color:#fff;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  main{max-width:32rem;padding:2rem;text-align:center}
+  h1{font-size:1.25rem;margin:0 0 .75rem}
+  p{color:#a8a8a8;margin:0 0 1.5rem}
+  a{color:#0095f6}
+</style></head>
+<body><main>
+<h1>Request received</h1>
+<p>Thank you. This has been logged and will be reviewed. If you left a way to reach you, you may get a reply.</p>
+<p><a href="/">Return to the archive</a></p>
+</main></body></html>`;
+
+// public/_headers only covers static-asset responses — anything returned
+// directly from this Worker (this file's json() responses, and the no-JS
+// CONFIRMATION_HTML below) bypasses it entirely, confirmed by testing
+// against a local wrangler dev server. Applied by hand here so /api/takedown
+// isn't the one unprotected corner of the site.
+const SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy":
+    "geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()",
+  "strict-transport-security": "max-age=63072000; includeSubDomains",
+  "cross-origin-opener-policy": "same-origin",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+};
+
+function json(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      ...SECURITY_HEADERS,
+    },
+  });
+}
+
+function clean(value: unknown, max: number): string {
+  if (typeof value !== "string") return "";
+  // Strip control characters (except newline/tab) before length-capping.
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim()
+    .slice(0, max);
+}
+
+/**
+ * Wraps a request body so it errors once more than `maxBytes` has passed
+ * through — enforcing the upload cap on the bytes actually received, not on
+ * a client-declared `content-length` header, which is trivial to lie about.
+ */
+function limitStream(stream: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  let total = 0;
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          controller.error(new Error("Upload exceeds the size limit."));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
+
+async function handleTakedown(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "Method not allowed." }, 405);
+  }
+
+  // Same-origin guard. Not a security boundary (Origin is forgeable outside a
+  // browser), but it stops the endpoint being trivially posted to from another
+  // site's page using a visitor's browser.
+  const origin = request.headers.get("origin");
+  if (origin) {
+    const allowed = new URL(request.url).origin;
+    if (origin !== allowed) {
+      return json({ ok: false, error: "Cross-origin requests are not accepted." }, 403);
+    }
+  }
+
+  let payload: Record<string, unknown>;
+  const contentType = request.headers.get("content-type") ?? "";
+  try {
+    if (contentType.includes("application/json")) {
+      payload = (await request.json()) as Record<string, unknown>;
+    } else {
+      // Fallback path: a plain <form> POST with JS disabled arrives as
+      // urlencoded/multipart. The form still works without JavaScript.
+      const form = await request.formData();
+      payload = Object.fromEntries(form.entries());
+    }
+  } catch {
+    return json({ ok: false, error: "Could not read the submitted form." }, 400);
+  }
+
+  // Honeypot: a field hidden from humans via CSS. Bots fill every input they
+  // find. Return a normal-looking success so the bot doesn't learn to adapt.
+  if (clean(payload.website, 50) !== "") {
+    return json({ ok: true }, 200);
+  }
+
+  const kind = clean(payload.kind, 40).toLowerCase();
+  const message = clean(payload.message, MAX_MESSAGE);
+  const entryRef = clean(payload.entry, MAX_SHORT_FIELD);
+  const contact = clean(payload.contact, MAX_SHORT_FIELD);
+
+  if (!KINDS.has(kind)) {
+    return json({ ok: false, error: "Please choose what your request is about." }, 400);
+  }
+  if (message.length < 10) {
+    return json(
+      { ok: false, error: "Please describe the request in a little more detail." },
+      400,
+    );
+  }
+
+  try {
+    const recent = await env.TAKEDOWNS.prepare(
+      "SELECT COUNT(*) AS n FROM takedown_requests WHERE created_at > datetime('now', '-1 minute')",
+    ).all<{ n: number }>();
+
+    if ((recent.results[0]?.n ?? 0) >= MAX_PER_MINUTE) {
+      return json(
+        { ok: false, error: "Too many requests right now. Please try again shortly." },
+        429,
+      );
+    }
+
+    await env.TAKEDOWNS.prepare(
+      `INSERT INTO takedown_requests (kind, entry_ref, contact, message, ip_country, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        kind,
+        entryRef || null,
+        contact || null,
+        message,
+        // Country only, never the IP itself. Enough to triage a flood, not
+        // enough to identify someone reporting a problem with this archive —
+        // which matters given what the archive is about.
+        clean((request as { cf?: { country?: string } }).cf?.country, 8) || null,
+        clean(request.headers.get("user-agent"), MAX_SHORT_FIELD) || null,
+      )
+      .run();
+  } catch (error) {
+    console.error("takedown insert failed", error);
+    return json(
+      { ok: false, error: "Something went wrong saving that. Please try again." },
+      500,
+    );
+  }
+
+  // No-JS path: a plain form POST expects a page back, not JSON. We can't
+  // redirect to /takedown/?sent=1 and have it say anything useful — that page
+  // is prerendered and static, so without JS it cannot read the query string.
+  // So render the confirmation here instead.
+  const accept = request.headers.get("accept") ?? "";
+  if (!accept.includes("application/json")) {
+    return new Response(CONFIRMATION_HTML, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        ...SECURITY_HEADERS,
+      },
+    });
+  }
+
+  return json({ ok: true }, 200);
+}
+
+/**
+ * Handles the "Submit a video" form (src/pages/index.astro): either a link to
+ * an existing public post (`mode: "url"`), or the metadata half of a raw
+ * footage upload (`mode: "upload"`) — the file itself follows in a second
+ * request to handleVideoUpload once this returns an `id`. JS-only: unlike
+ * /api/takedown there is no plausible no-JS fallback for a two-step upload
+ * with a progress bar, so a non-JSON caller just gets a 400.
+ */
+async function handleSubmitVideo(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "Method not allowed." }, 405);
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    const allowed = new URL(request.url).origin;
+    if (origin !== allowed) {
+      return json({ ok: false, error: "Cross-origin requests are not accepted." }, 403);
+    }
+  }
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return json({ ok: false, error: "This endpoint requires JavaScript." }, 400);
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return json({ ok: false, error: "Could not read the submitted form." }, 400);
+  }
+
+  // Honeypot, same convention as handleTakedown: return a normal-looking
+  // success so a bot doesn't learn to adapt.
+  if (clean(payload.website, 50) !== "") {
+    return json({ ok: true, id: 0 }, 200);
+  }
+
+  const mode = clean(payload.mode, 10).toLowerCase();
+  const eventDate = clean(payload.eventDate, 40);
+  const description = clean(payload.description, MAX_DESCRIPTION);
+  const contact = clean(payload.contact, MAX_SHORT_FIELD);
+  const countryCode = clean((request as { cf?: { country?: string } }).cf?.country, 8) || null;
+  const userAgent = clean(request.headers.get("user-agent"), MAX_SHORT_FIELD) || null;
+
+  if (mode === "url") {
+    const url = clean(payload.url, 2000);
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return json({ ok: false, error: "Please enter a valid URL." }, 400);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return json({ ok: false, error: "Please enter a valid URL." }, 400);
+    }
+
+    try {
+      const recent = await env.SUBMISSIONS.prepare(
+        "SELECT COUNT(*) AS n FROM video_submissions WHERE created_at > datetime('now', '-1 minute')",
+      ).all<{ n: number }>();
+      if ((recent.results[0]?.n ?? 0) >= MAX_PER_MINUTE) {
+        return json(
+          { ok: false, error: "Too many requests right now. Please try again shortly." },
+          429,
+        );
+      }
+
+      await env.SUBMISSIONS.prepare(
+        `INSERT INTO video_submissions (submission_type, url, event_date, description, contact, ip_country, user_agent)
+         VALUES ('url', ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(url, eventDate || null, description || null, contact || null, countryCode, userAgent)
+        .run();
+    } catch (error) {
+      console.error("video submission (url) insert failed", error);
+      return json(
+        { ok: false, error: "Something went wrong saving that. Please try again." },
+        500,
+      );
+    }
+
+    return json({ ok: true }, 200);
+  }
+
+  if (mode === "upload") {
+    const mimeType = clean(payload.mimeType, 100).toLowerCase();
+    const filename = clean(payload.filename, MAX_SHORT_FIELD);
+    const fileSize = Number(payload.fileSize);
+
+    if (!UPLOAD_MIME_TYPES.has(mimeType)) {
+      return json(
+        { ok: false, error: "That file type isn't supported. Please upload a video file." },
+        400,
+      );
+    }
+    if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > MAX_UPLOAD_BYTES) {
+      return json({ ok: false, error: TOO_LARGE_MESSAGE }, 400);
+    }
+
+    try {
+      const recentUploads = await env.SUBMISSIONS.prepare(
+        `SELECT COUNT(*) AS n FROM video_submissions
+         WHERE submission_type = 'upload' AND created_at > datetime('now', '-1 minute')`,
+      ).all<{ n: number }>();
+      if ((recentUploads.results[0]?.n ?? 0) >= MAX_UPLOADS_PER_MINUTE) {
+        return json(
+          { ok: false, error: "Too many uploads right now. Please try again shortly." },
+          429,
+        );
+      }
+
+      const daily = await env.SUBMISSIONS.prepare(
+        `SELECT COALESCE(SUM(file_size_bytes), 0) AS total FROM video_submissions
+         WHERE submission_type = 'upload' AND created_at > datetime('now', '-1 day')`,
+      ).all<{ total: number }>();
+      const dailyTotal = daily.results[0]?.total ?? 0;
+      if (dailyTotal + fileSize > MAX_DAILY_UPLOAD_BYTES) {
+        return json(
+          {
+            ok: false,
+            error: "Uploads are at capacity for today. Please try again tomorrow, or share a link instead.",
+          },
+          429,
+        );
+      }
+
+      const inserted = await env.SUBMISSIONS.prepare(
+        `INSERT INTO video_submissions
+           (submission_type, mime_type, original_filename, event_date, description, contact, ip_country, user_agent)
+         VALUES ('upload', ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          mimeType,
+          filename || null,
+          eventDate || null,
+          description || null,
+          contact || null,
+          countryCode,
+          userAgent,
+        )
+        .run();
+
+      return json({ ok: true, id: inserted.meta.last_row_id }, 200);
+    } catch (error) {
+      console.error("video submission (upload) insert failed", error);
+      return json(
+        { ok: false, error: "Something went wrong saving that. Please try again." },
+        500,
+      );
+    }
+  }
+
+  return json({ ok: false, error: "Unrecognized submission mode." }, 400);
+}
+
+/**
+ * Step 2 of the upload flow: PUT /api/upload/:id streams the raw file into
+ * the private UPLOADS bucket. `id` must reference a row created moments
+ * earlier by handleSubmitVideo with `submission_type = 'upload'` and no
+ * r2_key yet — this makes the endpoint single-use per id, which both stops
+ * an id being replayed to overwrite a file and keeps the daily-byte guard
+ * (checked again here) honest against a race between the two steps.
+ */
+async function handleVideoUpload(request: Request, env: Env, id: number): Promise<Response> {
+  if (request.method !== "PUT") {
+    return json({ ok: false, error: "Method not allowed." }, 405);
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    const allowed = new URL(request.url).origin;
+    if (origin !== allowed) {
+      return json({ ok: false, error: "Cross-origin requests are not accepted." }, 403);
+    }
+  }
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return json({ ok: false, error: "Unknown submission." }, 404);
+  }
+
+  // R2's put() requires a stream with a known length (see FixedLengthStream
+  // above), so — unlike the header check elsewhere in this file, which is
+  // just an early-reject optimization — content-length isn't optional here:
+  // a chunked request with no declared length has no length to fix the
+  // stream to, and is rejected rather than buffered to find out.
+  const contentLengthHeader = request.headers.get("content-length");
+  const contentLength = Number(contentLengthHeader);
+  if (!contentLengthHeader || !Number.isInteger(contentLength) || contentLength <= 0) {
+    return json({ ok: false, error: "A file size (content-length) is required." }, 411);
+  }
+  if (contentLength > MAX_UPLOAD_BYTES) {
+    return json({ ok: false, error: TOO_LARGE_MESSAGE }, 413);
+  }
+
+  const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
+  if (!UPLOAD_MIME_TYPES.has(contentType)) {
+    return json(
+      { ok: false, error: "That file type isn't supported. Please upload a video file." },
+      400,
+    );
+  }
+
+  if (!request.body) {
+    return json({ ok: false, error: "No file was received." }, 400);
+  }
+
+  try {
+    const existing = await env.SUBMISSIONS.prepare(
+      "SELECT submission_type, r2_key FROM video_submissions WHERE id = ?",
+    )
+      .bind(id)
+      .all<{ submission_type: string; r2_key: string | null }>();
+    const row = existing.results[0];
+    if (!row || row.submission_type !== "upload" || row.r2_key !== null) {
+      return json({ ok: false, error: "Unknown submission." }, 404);
+    }
+
+    const daily = await env.SUBMISSIONS.prepare(
+      `SELECT COALESCE(SUM(file_size_bytes), 0) AS total FROM video_submissions
+       WHERE submission_type = 'upload' AND created_at > datetime('now', '-1 day')`,
+    ).all<{ total: number }>();
+    const dailyTotal = daily.results[0]?.total ?? 0;
+    if (dailyTotal + contentLength > MAX_DAILY_UPLOAD_BYTES) {
+      return json(
+        { ok: false, error: "Uploads are at capacity for today. Please try again tomorrow." },
+        429,
+      );
+    }
+
+    const extension = MIME_EXTENSIONS[contentType] ?? "bin";
+    const key = `pending/${id}-${crypto.randomUUID()}.${extension}`;
+
+    // Fix the stream to the declared length (required by put(), see
+    // FixedLengthStream above) while still enforcing the byte cap on what
+    // actually arrives via limitStream — a client that lies and sends more
+    // bytes than it declared gets cut off there rather than trusted.
+    const fixedLength = new FixedLengthStream(contentLength);
+    limitStream(request.body, MAX_UPLOAD_BYTES)
+      .pipeTo(fixedLength.writable)
+      .catch(() => {
+        // Propagates to the put() below via fixedLength.readable erroring;
+        // this catch only exists so the pipeTo promise itself doesn't
+        // surface as an unhandled rejection.
+      });
+
+    await env.UPLOADS.put(key, fixedLength.readable, {
+      httpMetadata: { contentType },
+      customMetadata: { submissionId: String(id) },
+    });
+
+    await env.SUBMISSIONS.prepare(
+      "UPDATE video_submissions SET r2_key = ?, file_size_bytes = ?, mime_type = ? WHERE id = ?",
+    )
+      .bind(key, contentLength, contentType, id)
+      .run();
+  } catch (error) {
+    console.error("video upload failed", error);
+    return json(
+      { ok: false, error: "Something went wrong saving that file. Please try again." },
+      500,
+    );
+  }
+
+  return json({ ok: true }, 200);
+}
+
+/**
+ * Handles both POST (like) and DELETE (unlike) /api/likes/:id. Idempotent by
+ * construction: video_likes has a composite (video_id, client_id) primary
+ * key, so `INSERT OR IGNORE` on a repeat like from the same device is a
+ * silent no-op rather than a second row — a double-tap never double-counts.
+ * client_id is an anonymous id the browser generates and persists in
+ * localStorage; there is no account system, so it must be supplied by the
+ * caller, never generated here (see docs/design-spec.md).
+ */
+async function handleLikeMutation(request: Request, env: Env, videoId: string): Promise<Response> {
+  if (request.method !== "POST" && request.method !== "DELETE") {
+    return json({ ok: false, error: "Method not allowed." }, 405);
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    const allowed = new URL(request.url).origin;
+    if (origin !== allowed) {
+      return json({ ok: false, error: "Cross-origin requests are not accepted." }, 403);
+    }
+  }
+
+  if (!/^[a-z0-9-]{1,64}$/.test(videoId)) {
+    return json({ ok: false, error: "Unknown video." }, 400);
+  }
+
+  const clientId = request.headers.get("x-client-id") ?? "";
+  if (!/^[a-z0-9-]{8,64}$/.test(clientId)) {
+    return json({ ok: false, error: "Missing client id." }, 400);
+  }
+
+  try {
+    if (request.method === "POST") {
+      const recent = await env.LIKES.prepare(
+        "SELECT COUNT(*) AS n FROM video_likes WHERE created_at > datetime('now', '-1 minute')",
+      ).all<{ n: number }>();
+      if ((recent.results[0]?.n ?? 0) >= MAX_LIKES_PER_MINUTE) {
+        return json(
+          { ok: false, error: "Too many requests right now. Please try again shortly." },
+          429,
+        );
+      }
+
+      await env.LIKES.prepare(
+        "INSERT OR IGNORE INTO video_likes (video_id, client_id) VALUES (?, ?)",
+      )
+        .bind(videoId, clientId)
+        .run();
+
+      const count = await env.LIKES.prepare(
+        "SELECT COUNT(*) AS n FROM video_likes WHERE video_id = ?",
+      )
+        .bind(videoId)
+        .all<{ n: number }>();
+
+      return json({ ok: true, liked: true, count: count.results[0]?.n ?? 0 }, 200);
+    }
+
+    await env.LIKES.prepare("DELETE FROM video_likes WHERE video_id = ? AND client_id = ?")
+      .bind(videoId, clientId)
+      .run();
+
+    const count = await env.LIKES.prepare(
+      "SELECT COUNT(*) AS n FROM video_likes WHERE video_id = ?",
+    )
+      .bind(videoId)
+      .all<{ n: number }>();
+
+    return json({ ok: true, liked: false, count: count.results[0]?.n ?? 0 }, 200);
+  } catch (error) {
+    console.error("like mutation failed", error);
+    return json({ ok: false, error: "Something went wrong. Please try again." }, 500);
+  }
+}
+
+/**
+ * Batch hydration for the feed: returns like counts for the whole catalog in
+ * one shot. Redesigned after a Cloudflare architecture review of the
+ * original per-id `IN (...)` design, which bound one parameter per requested
+ * video id and hit D1's hard 100-bound-parameter-per-query limit at this
+ * catalog's actual size (178 videos). The fix removes per-id parameters
+ * entirely rather than chunking around the limit: this route always returns
+ * counts for every video, identically for every caller, so the query has
+ * zero bound parameters and can never hit that ceiling regardless of catalog
+ * size. "Have I liked this" is dropped from the response and answered
+ * entirely client-side (see Task 5) — the client already knows what it
+ * liked, since it's the one that issued the POST/DELETE; round-tripping to
+ * D1 to ask would need a scan anyway, since client_id is the second column
+ * of the (video_id, client_id) composite key, not a usable leading prefix.
+ *
+ * Also edge-cached via the Workers Cache API: this route fires on every
+ * /feed page view, and Free-plan D1 has a 5,000,000-rows-read/day cap that
+ * pageview traffic could realistically approach over time. A 20s
+ * Cache-Control window is explicitly acceptable for a vanity-metric-style
+ * count, and collapses "one D1 query per pageview" down to roughly one D1
+ * query per cache window per edge colo — the actual fix for read-volume
+ * cost, not just the parameter-count crash.
+ */
+async function handleLikesBatch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== "GET") {
+    return json({ ok: false, error: "Method not allowed." }, 405);
+  }
+
+  // No same-origin check: this is a public, cacheable GET with no side
+  // effects and an identical response for every caller — nothing to forge.
+
+  const cache = caches.default;
+  const cached = await cache.match(request);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const counts = await env.LIKES.prepare(
+      "SELECT video_id, COUNT(*) AS n FROM video_likes GROUP BY video_id",
+    ).all<{ video_id: string; n: number }>();
+
+    const likes: Record<string, number> = {};
+    for (const row of counts.results) {
+      likes[row.video_id] = row.n;
+    }
+
+    const response = json({ ok: true, likes }, 200);
+    response.headers.set("cache-control", "public, max-age=20");
+    ctx.waitUntil(cache.put(request, response.clone()));
+    return response;
+  } catch (error) {
+    console.error("likes batch failed", error);
+    return json({ ok: false, error: "Something went wrong. Please try again." }, 500);
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const { pathname } = url;
+
+    // 10082026.com is the canonical host (see CLAUDE.md) — www has no DNS
+    // record of its own on the zone, so this only fires once www is added
+    // as a second custom_domain route in wrangler.jsonc, which points it at
+    // this same Worker.
+    if (url.hostname === "www.10082026.com") {
+      url.hostname = "10082026.com";
+      return Response.redirect(url.toString(), 301);
+    }
+
+    if (pathname === "/api/takedown") {
+      return handleTakedown(request, env);
+    }
+
+    if (pathname === "/api/submit-video") {
+      return handleSubmitVideo(request, env);
+    }
+
+    const uploadMatch = /^\/api\/upload\/(\d+)$/.exec(pathname);
+    if (uploadMatch) {
+      return handleVideoUpload(request, env, Number(uploadMatch[1]));
+    }
+
+    // Check batch before the single-id route below, or "batch" itself would
+    // match the [a-z0-9-]+ capture group and be routed as a video id.
+    if (pathname === "/api/likes/batch") {
+      return handleLikesBatch(request, env, ctx);
+    }
+
+    const likeMatch = /^\/api\/likes\/([a-z0-9-]+)$/.exec(pathname);
+    if (likeMatch) {
+      return handleLikeMutation(request, env, likeMatch[1]);
+    }
+
+    return env.ASSETS.fetch(request);
+  },
+};

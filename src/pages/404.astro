@@ -1,0 +1,35 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Page not found"
+  description="The page you're looking for doesn't exist."
+>
+  <div
+    class="content-col not-found-hero flex flex-col items-center justify-center gap-4 text-center"
+  >
+    <h1 class="text-3xl font-bold tracking-tight">404</h1>
+    <p class="text-sm text-muted">This page doesn't exist in the archive.</p>
+    <a
+      href="/feed/"
+      class="mt-2 inline-flex min-h-11 items-center rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-bg no-underline hover:opacity-90"
+    >
+      Back to the feed
+    </a>
+  </div>
+</Base>
+
+<style>
+  .not-found-hero {
+    min-height: calc(100svh - var(--app-header-h) - var(--app-nav-h));
+  }
+
+  @media (min-width: 768px) {
+    .not-found-hero {
+      /* Desktop nav is a left sidebar now — it takes no vertical space, so
+         only the header needs subtracting here. */
+      min-height: calc(100svh - var(--app-header-h));
+    }
+  }
+</style>

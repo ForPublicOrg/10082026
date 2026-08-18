@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+/*
+ * True-black, Instagram-like design tokens.
+ *
+ * Superseded on 2026-07-21 (second reversal same day): the light theme
+ * adopted earlier today has been reversed again, this time to a TRUE BLACK
+ * theme after the owner compared it against a real Instagram screenshot —
+ * Instagram's mobile feed is pure black (#000), not the dark grey
+ * (#0a0a0b/#141416) the site's original dark attempt used, and not white.
+ * See docs/design-spec.md §9 for the full history and rationale.
+ *
+ * Contrast ratios (WCAG relative luminance formula) verified numerically —
+ * see docs/design-spec.md §9 for the full table. Anything used for
+ * body-weight text targets >= 4.5:1 against #000000.
+ */
+@theme {
+  /* Surfaces */
+  --color-bg: #000000; /* page background — pure black, not dark grey */
+  --color-surface: #121212; /* elevated surface: cards, chips, sheets */
+  --color-border: #262626; /* hairline border/separator */
+  --color-letterbox: #000000; /* identical to page bg: video sits in one continuous black field */
+
+  /* Text */
+  --color-text: #ffffff; /* primary text — 21.00:1 vs #000 */
+  --color-muted: #a8a8a8; /* secondary text — 8.83:1 vs #000 (AA) */
+  --color-tertiary: #737373; /* decorative/disabled ONLY — 4.43:1, not for text a user must read */
+
+  /* Accent */
+  --color-accent: #ffffff; /* active nav, primary buttons — white on black */
+  --color-link: #3b82c4; /* muted blue (toned down from IG's #0095f6 — read as too attention-grabbing), reserved for genuinely interactive affordances only — 5.16:1 vs #000 */
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* App-shell geometry, exposed so pages (e.g. a full-bleed feed) can size
+     their own scroll containers around the header/nav chrome precisely. */
+  --app-header-h: 3.25rem;
+  --app-nav-h: 3.75rem;
+  --app-nav-w-desktop: 4.75rem;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+/* Scrollbars: the stock light-grey Windows scrollbar is the one element the
+   true-black theme can't reach by default, and it reads as a bright seam down
+   the page's edge. Restyle every scrollbar (document + inner overflow areas)
+   to a slim, dark thumb on an invisible track instead of hiding them —
+   scroll affordance stays, the seam goes. Both the standard properties
+   (Firefox, and Chromium 121+, where they override the ::-webkit-* styles)
+   and the legacy ::-webkit-scrollbar pseudos (Safari, older Chromium) are
+   needed. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #2e2e2e transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2e2e2e;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #454545;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+video,
+button,
+input,
+textarea,
+select,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Sensible default: chrome (buttons, nav, controls) isn't selectable like
+   running text is. Actual copy still selects normally. */
+button,
+a,
+nav,
+.app-nav,
+.app-header {
+  user-select: none;
+}
+
+/* Must live in @layer base: unlayered CSS beats every @layer, so an unlayered
+   `a { color: inherit }` silently overrides Tailwind's text-* utilities (which
+   are generated inside @layer utilities) on every anchor site-wide. */
+@layer base {
+  a {
+    color: inherit;
+  }
+}
+
+/* Deliberate, designed focus ring — never the browser default blue outline.
+   A subtle translucent white ring reads clearly against true black without
+   the harshness of a solid 2px white outline. */
+:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.content-col {
+  max-width: 36rem; /* max-w-xl */
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .motion-fade {
+    transition:
+      opacity 200ms ease,
+      transform 200ms ease;
+  }
+
+  .scroll-cue {
+    animation: scroll-cue-bounce 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes scroll-cue-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+/* Astro View Transitions: degrade to an instant swap under reduced motion
+   rather than relying on browser default handling. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

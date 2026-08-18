@@ -1,0 +1,247 @@
+---
+// One creator's block on /coverage: identity header (story-ring monogram,
+// name, handle, subscriber count as captured), a one-line factual blurb, and
+// a horizontal scroll-snap rail of their videos in the order they were
+// posted. The ‹ › controls ship `hidden` and are revealed by
+// src/scripts/coverage.ts only when the rail actually overflows — without JS
+// the rail is still a plain scrollable row and loses nothing.
+import type { Creator } from "../lib/schema";
+import CoverageVideoCard from "./CoverageVideoCard.astro";
+
+export interface Props {
+  creator: Creator;
+}
+
+const { creator } = Astro.props;
+
+const monogram = creator.name.trim().charAt(0).toUpperCase() || "?";
+const videos = [...creator.videos].sort((a, b) =>
+  a.publishedAt < b.publishedAt ? -1 : a.publishedAt > b.publishedAt ? 1 : 0,
+);
+---
+
+<section class="cov-section" id={creator.id} aria-labelledby={`${creator.id}-heading`}>
+  <header class="cov-section-header">
+    <div class="cov-avatar" aria-hidden="true">
+      {
+        creator.avatar ? (
+          <img class="cov-avatar-inner" src={creator.avatar} alt="" loading="lazy" decoding="async" width="88" height="88" />
+        ) : (
+          <span class="cov-avatar-inner">{monogram}</span>
+        )
+      }
+    </div>
+    <div class="cov-creator-text">
+      <h2 class="cov-creator-name" id={`${creator.id}-heading`}>{creator.name}</h2>
+      <p class="cov-creator-meta">
+        {creator.handle}
+        <span aria-hidden="true">&middot;</span>
+        {creator.subscribers} subscribers
+        <span aria-hidden="true">&middot;</span>
+        {videos.length} {videos.length === 1 ? "video" : "videos"}
+      </p>
+    </div>
+    <div class="cov-rail-controls" hidden>
+      <button type="button" data-rail-prev aria-label={`Scroll ${creator.name} videos back`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg>
+      </button>
+      <button type="button" data-rail-next aria-label={`Scroll ${creator.name} videos forward`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
+      </button>
+    </div>
+    <a
+      class="cov-channel-link"
+      href={creator.channelUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open ${creator.name} on YouTube (opens in a new tab)`}
+    >
+      Channel <span aria-hidden="true">&#8599;</span>
+    </a>
+  </header>
+
+  <p class="cov-blurb">{creator.blurb}</p>
+
+  <div class="cov-rail" data-rail tabindex="0" role="group" aria-label={`${creator.name} — videos`}>
+    {videos.map((video) => <CoverageVideoCard video={video} creator={creator} />)}
+  </div>
+</section>
+
+<style>
+  .cov-section {
+    padding-top: 2rem;
+    /* Anchor jumps from the sticky creator index land below the sticky bars
+       instead of underneath them. */
+    scroll-margin-top: calc(var(--app-header-h) + 4.25rem);
+  }
+
+  .cov-section + .cov-section {
+    margin-top: 1rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .cov-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  /* Monogram in an Instagram-style story ring, kept monochrome — the site's
+     accent is white, not a brand gradient. Built as a conic ring with a
+     2px black gap so it reads as a ring, not a filled disc. */
+  .cov-avatar {
+    flex: 0 0 auto;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    padding: 2px;
+    background: conic-gradient(from 210deg, #ffffff, #4d4d4d, #ffffff, #8a8a8a, #ffffff);
+  }
+
+  .cov-avatar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--color-surface);
+    border: 2px solid var(--color-bg);
+    color: var(--color-text);
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  /* Real channel picture (committed under public/coverage/) — the 2px
+     bg-colored border stays, giving the same gap between ring and image
+     that the monogram fallback has. */
+  img.cov-avatar-inner {
+    object-fit: cover;
+  }
+
+  .cov-creator-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.35;
+  }
+
+  .cov-creator-name {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cov-creator-meta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--color-muted);
+  }
+
+  .cov-rail-controls {
+    display: none;
+    gap: 0.4rem;
+  }
+
+  .cov-rail-controls[hidden] {
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .cov-rail-controls:not([hidden]) {
+      display: flex;
+    }
+  }
+
+  .cov-rail-controls button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .cov-rail-controls button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .cov-rail-controls svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .cov-channel-link {
+    flex: 0 0 auto;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-link);
+    text-decoration: none;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .cov-channel-link:hover {
+    text-decoration: underline;
+  }
+
+  .cov-blurb {
+    margin: 0.6rem 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--color-muted);
+    max-width: 44rem;
+  }
+
+  .cov-rail {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    /* Bleed to the page gutter so cards can slide under the edge fade
+       instead of clipping hard at the column edge. */
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    scroll-padding-inline: 1rem;
+    padding-bottom: 0.25rem;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 1rem,
+      #000 calc(100% - 1.25rem),
+      transparent 100%
+    );
+  }
+
+  .cov-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cov-rail:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.65);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+</style>
