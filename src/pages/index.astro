@@ -708,12 +708,31 @@ const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
               website,
             }),
           });
-          const result = (await response.json()) as { ok?: boolean; error?: string };
+          const result = (await response.json()) as {
+            ok?: boolean;
+            error?: string;
+            prUrl?: string;
+          };
 
           if (response.ok && result.ok) {
             form.reset();
             syncMode();
             setStatus("Thank you — this will be reviewed.");
+            // Vercel deployments queue link submissions into a public pull
+            // request (api/submit-video.js) and return its URL; the
+            // Cloudflare Worker path stores to the private inbox instead
+            // and returns no prUrl. Only ever a link to github.com — never
+            // submitter data.
+            if (result.prUrl && status) {
+              const link = document.createElement("a");
+              link.href = result.prUrl;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = "Track it in the public review queue ↗";
+              link.className = "text-accent";
+              status.append(" ");
+              status.append(link);
+            }
             setBusy(false, "Sent");
             return;
           }
