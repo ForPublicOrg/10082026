@@ -30,15 +30,15 @@ const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
 
   <section class="hero">
     <picture>
-      <!-- Desktop / wide viewports: 2:1 poster artwork, generated for this
-           fork (typographic memorial poster — see scripts note in
-           docs/execution-plan.md "Open" for the commissioned-artwork slot).
-           2:1 closely matches common desktop viewport ratios, so `cover`
-           below only trims a sliver rather than pillarboxing. -->
+      <!-- Desktop / wide viewports: owner-supplied 16:9 poster artwork
+           (1672x941 native — full-res source PNGs live in
+           archive-originals/banner-source/, git-ignored). Only native-or-
+           smaller widths are offered; a 1920/2560 candidate would just be
+           an upscale of this same source. -->
       <source
         media="(min-width: 768px)"
         type="image/webp"
-        srcset="/banner/poster-wide-1280.webp 1280w, /banner/poster-wide-1920.webp 1920w, /banner/poster-wide-2560.webp 2560w"
+        srcset="/banner/poster-wide-1280.webp 1280w, /banner/poster-wide-1672.webp 1672w"
         sizes="100vw"
       />
       <source
@@ -46,22 +46,18 @@ const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
         type="image/jpeg"
         srcset="/banner/poster-wide.jpg"
       />
-      <!-- Mobile / narrow viewports: native 864x1822 portrait (~1:2.11),
-           close match to a ~1:2.16 phone. The poster is generated from a
-           vector source, so regenerate at higher resolution if ever needed
-           rather than upscaling these files. The bottom ~10% of the artwork
-           is the values strip the --hero-strip-h overlay tuning below is
-           anchored to. -->
+      <!-- Mobile / narrow viewports: owner-supplied 2:3 portrait poster
+           (1024x1536 native), same no-upscaling rule. -->
       <source
         type="image/webp"
-        srcset="/banner/poster-portrait-640.webp 640w, /banner/poster-portrait-864.webp 864w"
+        srcset="/banner/poster-portrait-640.webp 640w, /banner/poster-portrait-1024.webp 1024w"
         sizes="100vw"
       />
       <img
         src="/banner/poster-portrait.jpg"
-        alt="Typographic memorial poster on a black field: a torch mark with a deep-red flame above the date 10·08·2026, the words The Day Jharkhand Marched, Ranchi · Vidhan Sabha, and the archive's values strip along the bottom edge."
-        width="864"
-        height="1822"
+        alt="Illustrated documentary-collage poster titled Jharkhand Protest Archive: the date 10.08.2026 over scenes of the Ranchi march — protesters holding signs demanding a CBI probe and an end to paper leaks, police using a water cannon at the Vidhan Sabha barricades — surrounded by a leaked exam paper, a WhatsApp chat, a handwritten list of demands and a press card."
+        width="1024"
+        height="1536"
         fetchpriority="high"
         loading="eager"
         decoding="async"
@@ -268,29 +264,22 @@ const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
     /* Never 100vh on mobile: that includes area the browser chrome can
        cover/uncover, which would clip the CTA. 100svh is the guaranteed
        visible minimum. */
-    /* End the poster ABOVE the floating nav rather than behind it. The
-       artwork's own values strip runs along its bottom edge, so a full-100svh
-       hero puts the strip's second line ("THE TRUTH", "THEM", "THE EVIDENCE"…)
-       underneath the opaque nav bar and slices it in half. Reserving the nav's
-       height means the whole poster — strip included — is actually visible,
-       which is the point of showing it at all. */
+    /* End the poster ABOVE the floating nav rather than behind it — with a
+       full-100svh hero the artwork's bottom edge would sit underneath the
+       opaque nav bar. Reserving the nav's height means the whole poster is
+       actually visible, which is the point of showing it at all. */
     height: calc(100svh - var(--app-nav-h) - env(safe-area-inset-bottom));
     width: 100%;
     overflow: hidden;
     background: var(--color-bg);
-    /* The poster's own designed values strip (DOCUMENT THE TRUTH / REMEMBER
-       THEM / PRESERVE THE EVIDENCE / HONOR THE COURAGE / THIS ARCHIVE) lives
-       along the bottom edge of the artwork, occupying the bottom ~19% of the
-       full image height. Now that .hero-img uses a top-anchored `cover` on
-       mobile (see below — needed to kill the pillarboxing `contain` caused
-       on real phone viewports), that strip is exactly what gets cropped
-       first, and by a variable amount depending on how much taller the hero
-       box is than the poster's own aspect. 10% is a conservative estimate
-       of how much of the strip typically survives, not an exact fraction —
-       on short viewports the strip may crop away entirely, which is an
-       acceptable trade for losing the pillarboxing. The overlay's own
-       max(--hero-strip-h, nav-clearance) floor (below) still guarantees the
-       CTA never sits behind the bottom nav even where this estimate is off. */
+    /* With the owner-supplied posters shown whole via `contain` (see
+       .hero-img), this is no longer tied to any in-artwork strip: it is
+       simply how far above the hero's bottom edge the CTA/scroll-cue
+       overlay anchors. On mobile the 2:3 poster letterboxes top and bottom
+       against the page's own black, so the overlay usually sits in (or
+       near) the bottom band rather than over the artwork. The overlay's
+       max(--hero-strip-h, nav-clearance) floor (below) still guarantees
+       the CTA never sits behind the bottom nav. */
     --hero-strip-h: 10%;
   }
 
@@ -310,56 +299,29 @@ const ogImage = `${SITE_URL}/banner/poster-wide.jpg`;
     display: block;
     width: 100%;
     height: 100%;
-    /* `cover`, not `contain`, on phones. `contain` was tried first to avoid
-       cropping the poster at all, on the assumption (never checked against
-       a real phone, only a bare 390x844 box) that it would only cost ~10px
-       of letterbox per side. On an actual small viewport — address bar
-       visible, bottom nav reserved via --app-nav-h — the hero box ends up
-       noticeably wider-than-tall relative to the poster's own 0.4742 aspect,
-       and `contain` pillarboxed with real, visible black bars down both
-       sides (reported by the owner from a live phone screenshot, ~8% of
-       width per side). That's the same "black bars on both sides" bug
-       desktop had before it switched to `cover` (see the media query
-       below) — same fix applies here. Anchored top so the crop comes out of
-       the bottom values strip rather than the date/title block at the top,
-       which matters far more on the first screenful. --hero-strip-h below
-       is now a conservative estimate, not an exact fraction, since how much
-       of the strip survives depends on how much the crop takes. */
-    object-fit: cover;
-    object-position: center top;
+    /* `contain`, on both breakpoints — a deliberate reversal of the
+       previous posters' `cover` tuning, because the owner-supplied artwork
+       changes the trade-offs that decision was based on:
+       1. The owner asked for the images to be shown COMPLETELY — every
+          crop was cutting real content here (title band, collage documents,
+          police line), not disposable margin like the old poster's sky.
+       2. The old pillarboxing complaint doesn't reproduce: the phone poster
+          is 2:3 (WIDER than any phone hero box, so `contain` fills the full
+          width and letterboxes top/bottom, never down the sides), and both
+          posters have near-black grungy edges that dissolve into the
+          hero's --color-bg letterbox instead of meeting it at a hard seam.
+       3. The desktop poster is exactly 16:9 — on the most common desktop
+          and laptop viewports `contain` is a full-bleed perfect fit, and on
+          anything wider/shorter it letterboxes symmetrically into black. */
+    object-fit: contain;
+    object-position: center;
   }
 
-  @media (min-width: 768px) {
-    .hero-img {
-      /* Desktop switches to `cover`: the mobile portrait crop still needs
-         `contain` (see above — no wider anchor rescues both ends there),
-         but the new 2:1 desktop artwork is close enough to real viewport
-         ratios that `cover` only trims a small sliver rather than
-         pillarboxing, and it's what actually fills the viewport edge to
-         edge (the previous unconditional `contain` was letterboxing every
-         desktop width, which is the "black bars on both sides" the owner
-         flagged). Anchor bottom, not center, for the same reason as before:
-         it puts the entire crop at the top (ample sky/margin above the
-         "REC" mark) so the bottom-edge values strip survives at full
-         height instead of being shaved down and half-hidden behind the nav. */
-      object-fit: cover;
-      object-position: center bottom;
-    }
-  }
-
-  /* Bottom scrim so the illustration label and scroll cue stay legible over
-     arbitrary artwork pixels, without darkening the whole poster. Runs all
-     the way to the hero's own bottom edge (bottom: 0) on both breakpoints:
-     both .hero-img crops now use `cover` (mobile top-anchored, desktop
-     bottom-anchored — see below), and how much of the values strip survives
-     a `cover` crop varies by the viewport's actual aspect ratio, not just
-     the one it was tuned against. Desktop used to stop the scrim short
-     (bottom: var(--hero-strip-h)) on the assumption its crop reliably kept
-     the strip intact, but real desktop viewports cropped it too, leaving
-     the same hard, ugly seam mobile had where the crisp uncropped art met
-     the flat page background. Running the scrim to the true edge on both
-     means whatever's left of the strip always fades into the page's own
-     --color-bg instead of ending in a visible line. */
+  /* Bottom scrim so the CTA and scroll cue stay legible over arbitrary
+     artwork pixels, without darkening the whole poster. Runs to the hero's
+     true bottom edge on both breakpoints so the artwork (or its letterbox
+     band, now that .hero-img uses `contain`) always fades into the page's
+     own --color-bg instead of ending in a visible seam. */
   .hero-scrim {
     position: absolute;
     left: 0;
